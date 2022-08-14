@@ -12,13 +12,79 @@ section .bss
     renderer: resq 1
 
 section .data
-    title: db "Title", 0 
+    title: db "asteroids-asm", 0 
 
 
+; RDI, RSI, RDX, RCX, R8 a R9
 section   .text
 main:
     enter 0, 0
-    ; Initialize SDL
+    
+    call setup_window_and_renderer
+
+    sub rsp, 64
+    ;-56 : SDL_PollEvent e
+    mov byte [rbp - 57], 0 ; quit
+
+    ; Main loop
+    .main_loop:
+    cmp byte [rbp - 57], 1 ;while quit == 0
+    je .quit
+
+    ;event loop
+    .event_loop:
+        lea rdi, [rbp - 56]
+        call SDL_PollEvent
+        cmp rax, 0
+        je .event_loop_end
+        
+        ;SDL_EVENT.type == SDL_QUIT
+        xor rax, rax
+        mov rbx, 1
+        cmp dword [rbp - 56], SDL_QUIT
+        cmove rax, rbx
+        mov byte [rbp - 57], al
+
+    jmp .event_loop
+    .event_loop_end:
+    
+    call render_bg
+
+    jmp .main_loop ; jump to main loop
+
+    .quit:
+    call cleanup
+    
+    mov rax, 0
+    leave
+    ret             
+
+
+render_bg:
+    enter 0, 0
+     ;fill bg
+    ;SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255)
+    mov rdi, [renderer]
+    mov rsi, 18
+    mov rdx, 18
+    mov rcx, 18
+    mov r8, 255
+    call SDL_SetRenderDrawColor
+
+    ;SDL_RenderClear(renderer)
+    mov rdi, [renderer]
+    call SDL_RenderClear
+
+    ;render frame
+    ;SDL_RenderPresent(renderer)
+    mov rdi, [renderer]
+    call SDL_RenderPresent
+    leave
+    ret
+
+setup_window_and_renderer:
+    enter 0,0
+     ; Initialize SDL
     mov rdi, SDL_INIT_VIDEO
     call SDL_Init
 
@@ -40,41 +106,12 @@ main:
     or rdx, SDL_RENDERER_PRESENTVSYNC
     call SDL_CreateRenderer
     mov [renderer], rax
+    leave
+    ret
 
-    sub rsp, 64
-    ;mov byte [rbp -54], 0 ; SDL_Event e
-    ;-56 : SDL_PollEvent e
-    mov byte [rbp - 57], 0 ; quit
-
-    ; Main loop
-    .main_loop:
-    cmp byte [rbp - 57], 1
-    je .quit
-
-    ;event loop
-    .event_loop:
-        lea rdi, [rbp - 56]
-        call SDL_PollEvent
-        cmp rax, 0
-        je .event_loop_end
-        
-        ;SDL_EVENT.type == SDL_QUIT
-        xor rax, rax
-        mov rbx, 1
-        cmp dword [rbp - 56], SDL_QUIT
-        cmove rax, rbx
-        mov byte [rbp - 57], al
-
-
-
-    jmp .event_loop
-    .event_loop_end:
-    
-
-    jmp .main_loop
-
-    .quit:
-    ; Destroy renderer
+cleanup:
+    enter 0, 0
+     ; Destroy renderer
     mov rdi, [renderer]
     call SDL_DestroyRenderer
 
@@ -85,7 +122,5 @@ main:
     ; Quit SDL
     mov rdi, 0
     call SDL_Quit
-    
-    mov rax, 0
     leave
-    ret             
+    ret
