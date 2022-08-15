@@ -2,13 +2,15 @@ bits 64
     global    main
     %include 'externs.asm'
     %include 'utils.asm'
-    
+    %define SPACESHIP_SIZE 128
+    %define ROTATION_SPEED 4.0
 
 section .bss
     window: resq 1
     renderer: resq 1
     asteroids_texture: resq 1
     ship_texture: resq 1
+    
 
 section .data
     title: db "asteroids-asm", 0 
@@ -16,21 +18,23 @@ section .data
     ship_texture_path: db "assets/ship.png", 0
     error_text : db "ERROR", 0
 
-; RDI, RSI, RDX, RCX, R8 a R9
+; RDI, RSI, RDX, RCX, R8, R9
 section   .text
 main:
-    enter 64, 0
+    enter 80, 0
     
     call setup_window_and_renderer
     call load_textures
 
     ;-56 : SDL_PollEvent e
-    mov byte [rbp - 57], 0 ; quit
+    ;-64 : angle (double)
+    ;-68 : x (int)
+    ;-72 : y (int)
+    ;-73 : thrust (bool)
+    ;-74 ; shoot (bool)
 
     ; Main loop
     .main_loop:
-    cmp byte [rbp - 57], 1 ;while quit == 0
-    je .quit
 
     ;event loop
     .event_loop:
@@ -43,22 +47,28 @@ main:
         xor rax, rax
         mov rbx, 1
         cmp dword [rbp - 56], SDL_QUIT
-        cmove rax, rbx
-        mov byte [rbp - 57], al
+        je .quit
 
     jmp .event_loop
     .event_loop_end:
+
 
     call SDL_RenderClear
     
     call render_bg
 
-    ;call render_animation
+    call render_animation
 
+    ;update spaceship
+    lea rdi, [rbp - 73]
+    lea rsi, [rbp - 64]
+    call update_spaceship
+
+    ;render spaceship
     mov rdi, 20 ;x
     mov rsi, 20 ;y
-    mov rdx , __float64__(45.0) ;rotation
-    mov rcx, 1 ;thrust
+    mov rdx ,[rbp - 64] ;rotation
+    mov rcx, [rbp - 73] ;thrust
     call render_spaceship
 
 
@@ -75,6 +85,66 @@ main:
     mov rax, 0
     leave
     ret          
+
+;*thrust (bool) [thrust, shoot], *angle (double) 
+update_spaceship:
+    enter 32,0
+    ; -8 keystates
+    ; -16 address of trust bool
+    ; -24 address of angle
+
+    mov [rbp - 16], rdi
+    mov [rbp - 24], rsi
+
+
+    xor rdi, rdi
+    call SDL_GetKeyboardState
+    mov [rbp - 8], rax
+
+    ; thurst ?
+    movsx r9, byte[rax + SDL_SCANCODE_W]
+    mov r8, [rbp - 16]
+    mov [r8], r9
+
+    ;shoot ?
+    movsx r9, byte [rax + SDL_SCANCODE_SPACE]
+    mov r8, [rbp - 16]
+    mov [r8 + 1], r9
+
+    ;angle+ (right)
+    movsx r9, byte[rax + SDL_SCANCODE_D]          ;bool
+    cmp r9, 0
+    je .dont_rotate_right
+
+    mov rdx, __float64__(ROTATION_SPEED)    ; load rotate speed
+    movq xmm1, rdx 
+
+    mov r8, [rbp - 24]              ; ptr to angle
+    movsd xmm0, [r8]                 ; load angle
+    
+    addsd xmm0, xmm1    ; add rotate speed to angle
+    movsd [r8], xmm0     ; store angle back
+
+    .dont_rotate_right:
+
+    ;angle- (left)
+    movsx r9, byte [rax + SDL_SCANCODE_A]          ;bool
+    cmp r9, 0
+    je .dont_rotate_left
+
+    mov rdx, __float64__(ROTATION_SPEED)    ; load rotate speed
+    movq xmm1, rdx
+
+    mov r8, [rbp - 24]              ; ptr to angle
+    movsd xmm0, [r8]                 ; load angle
+
+    subsd xmm0, xmm1    ; sub rotate speed to angle
+    movsd [r8], xmm0     ; store angle back
+    .dont_rotate_left:
+
+    leave
+    ret
+
 
 ; x, y, angle, thrust
 render_spaceship:
@@ -174,10 +244,10 @@ render_animation:
     call create_rect
 
     lea rdi, [rbp - 32]
-    xor rsi, rsi
-    xor rdx, rdx
-    mov rcx, 400
-    mov r8, 400
+    mov rsi, 300
+    mov rdx, 300
+    mov rcx, 100
+    mov r8, 100
     call create_rect
 
     ; render sprite
