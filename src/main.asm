@@ -4,7 +4,15 @@ bits 64
     %include 'utils.asm'
     %define SPACESHIP_SIZE 128
     %define ROTATION_SPEED 4.0
+    %define ACCELERATION_SPEED 0.4
+    %define FRICTION 0.98
+    %define MAX_SPEED 1.0
 
+    %define DEG2RAD 0.0174532925
+    %define WIDTH 1024
+    %define HEIGHT 768
+    %define CENTER_X 512.0
+    %define CENTER_Y 384.0
 section .bss
     window: resq 1
     renderer: resq 1
@@ -21,17 +29,29 @@ section .data
 ; RDI, RSI, RDX, RCX, R8, R9
 section   .text
 main:
-    enter 80, 0
+    enter 112, 0
     
     call setup_window_and_renderer
     call load_textures
 
     ;-56 : SDL_PollEvent e
     ;-64 : angle (double)
-    ;-68 : x (int)
-    ;-72 : y (int)
-    ;-73 : thrust (bool)
-    ;-74 ; shoot (bool)
+    ;-72 : x (double)
+    ;-80 : y (double)
+    ;-88 : dx (double)
+    ;-96 : dy (double)
+    ;-97 : thrust (bool)
+    ;-98 ; shoot (bool)
+
+    mov rax, __float64__(512.0)
+    mov qword [rbp-72], rax
+    mov rax, __float64__(384.0)
+    mov qword [rbp-80], rax
+
+    mov rax, __float64__(0.0)
+    mov qword [rbp-88], rax
+    mov qword [rbp-96], rax
+
 
     ; Main loop
     .main_loop:
@@ -60,15 +80,14 @@ main:
     call render_animation
 
     ;update spaceship
-    lea rdi, [rbp - 73]
+    lea rdi, [rbp - 97]
     lea rsi, [rbp - 64]
     call update_spaceship
 
     ;render spaceship
-    mov rdi, 20 ;x
-    mov rsi, 20 ;y
-    mov rdx ,[rbp - 64] ;rotation
-    mov rcx, [rbp - 73] ;thrust
+
+    lea rdi, [rbp - 64] ; *[angle,x,y]
+    mov rsi, [rbp - 97] ; thrust
     call render_spaceship
 
 
@@ -86,7 +105,7 @@ main:
     leave
     ret          
 
-;*thrust (bool) [thrust, shoot], *angle (double) 
+;*thrust (bool) [thrust, shoot], *angle (double) [angle, x, y, dx, dy]
 update_spaceship:
     enter 32,0
     ; -8 keystates
@@ -101,20 +120,95 @@ update_spaceship:
     call SDL_GetKeyboardState
     mov [rbp - 8], rax
 
-    ; thurst ?
-    movsx r9, byte[rax + SDL_SCANCODE_W]
-    mov r8, [rbp - 16]
-    mov [r8], r9
+    ;-----------------------------------
 
-    ;shoot ?
-    movsx r9, byte [rax + SDL_SCANCODE_SPACE]
+    ; thurst ?
+    movsx rcx, byte[rax + SDL_SCANCODE_W]
     mov r8, [rbp - 16]
-    mov [r8 + 1], r9
+    mov [r8], cl
+
+    ; Update dx and dy
+    cmp rcx, 1
+    jne .dont_thrust
+
+    ;dx += sin(angle*DEG2RAD) * ACCELERATION_SPEED
+    ;cos(angle*DEG2RAD)
+    mov r9, [rbp - 24]
+    movsd xmm0, [r9]
+    mov r9, __float64__(DEG2RAD)
+    movq xmm1, r9
+    mulsd xmm0, xmm1
+    call sin ;return in xmm0
+
+    ; *ACCELERATION_SPEED
+    mov r9, __float64__(ACCELERATION_SPEED)
+    movq xmm1, r9
+    mulsd xmm0, xmm1
+    ; dx+ = xmm0
+    mov r9, [rbp - 24]
+    movsd xmm1, [r9 - 8*3] ; dx
+    addsd xmm0, xmm1
+    movsd [r9 - 8*3], xmm0
+
+
+    ;dy += cos(angle*DEG2RAD) * ACCELERATION_SPEED
+    mov r9, [rbp - 24]
+    movsd xmm0, [r9]
+    mov r9, __float64__(DEG2RAD)
+    movq xmm1, r9
+    mulsd xmm0, xmm1 ;angle*DEG2RAD
+    call cos ;return in xmm0
+
+    ; *ACCELERATION_SPEED
+    mov r9, __float64__(ACCELERATION_SPEED)
+    movq xmm1, r9
+    mulsd xmm0, xmm1
+    ; dy+ = xmm0
+    mov r9, [rbp - 24]
+    movsd xmm1, [r9 - 8*4] ; dy
+    addsd xmm0, xmm1
+    movsd [r9 - 8*4], xmm0
+
+    .dont_thrust:
+
+    ; dxy*=FRICTION
+    mov r9, [rbp - 24]
+    movsd xmm0, [r9 - 8*3] ; dx
+    movsd xmm1, [r9 - 8*4] ; dy
+    mov r8, __float64__(FRICTION)
+    movq xmm2, r8
+    mulsd xmm0, xmm2
+    mulsd xmm1, xmm2
+    movsd [r9 - 8*3], xmm0
+    movsd [r9 - 8*4], xmm1
+
+
+    ; x += dx
+    mov r9, [rbp - 24]
+    movsd xmm0, [r9 - 8*1] ; x
+    movsd xmm1, [r9 - 8*3] ; dx
+    addsd xmm0, xmm1
+    movsd [r9 - 8*1], xmm0
+
+    ; y += dy
+    mov r9, [rbp - 24]
+    movsd xmm0, [r9 - 8*2] ; y
+    movsd xmm1, [r9 - 8*4] ; dy
+    subsd xmm0, xmm1
+    movsd [r9 - 8*2], xmm0
+    
+
+    mov rax, [rbp - 8] ;return keystates ptr back to rax
+    
+    ;shoot ?
+    ; movsx r9, byte [rax + SDL_SCANCODE_SPACE]
+    ; mov r8, [rbp - 16]
+    ; mov [r8 + 1], r9 ; &thrust+1 = &shoot
 
     ;angle+ (right)
     movsx r9, byte[rax + SDL_SCANCODE_D]          ;bool
-    cmp r9, 0
-    je .dont_rotate_right
+    cmp r9, 1
+    jne .dont_rotate_right
 
     mov rdx, __float64__(ROTATION_SPEED)    ; load rotate speed
     movq xmm1, rdx 
@@ -129,8 +223,8 @@ update_spaceship:
 
     ;angle- (left)
     movsx r9, byte [rax + SDL_SCANCODE_A]          ;bool
-    cmp r9, 0
-    je .dont_rotate_left
+    cmp r9, 1
+    jne .dont_rotate_left
 
     mov rdx, __float64__(ROTATION_SPEED)    ; load rotate speed
     movq xmm1, rdx
@@ -146,21 +240,34 @@ update_spaceship:
     ret
 
 
-; x, y, angle, thrust
+
+; *[angle, x, y](doubles), thrust(bool)
 render_spaceship:
     enter 80, 0
     ; -16 spaceship rect
     ; -32 thrust rect
     ; -48 dest rect
-    ; -52 x;     (int)
-    ; -56 y;     (int)
-    ; -64 angle  (double)
+    ; -56 *[angle, x, y](doubles)
+    ; -60 x int
+    ; -64 y int
     ; -65 thrust (bool)
 
-    mov [rbp - 52], edi
-    mov [rbp - 56], esi
-    mov [rbp - 64], rdx
-    mov [rbp - 65], ecx
+    ;save params
+    mov qword  [rbp - 56], rdi
+    mov byte [rbp - 65], sil
+
+    ; convert x to int
+    movq xmm0, [rdi - 8 * 1] ;x
+    cvtsd2si eax, xmm0
+    mov dword [rbp - 60], eax
+
+    ; convert y to int
+    movsd xmm0, [rdi - 8 * 2] ;y
+    cvtsd2si eax, xmm0
+    mov dword [rbp - 64], eax
+
+
+
 
     lea rdi, [rbp - 16]
     xor rsi, rsi
@@ -177,8 +284,8 @@ render_spaceship:
     call create_rect ;thrust rect = {256, 0, 256, 256}
 
     lea rdi, [rbp - 48]
-    mov rsi, [rbp - 52]
-    mov rdx, [rbp - 56]
+    mov rsi, [rbp - 60]
+    mov rdx, [rbp - 64]
     mov rcx, SPACESHIP_SIZE
     mov r8, SPACESHIP_SIZE
     call create_rect ;dest rect = {x, y, SPACESHIP_SIZE, SPACESHIP_SIZE}
@@ -189,19 +296,21 @@ render_spaceship:
     lea rdx, [rbp - 16]
     lea rcx, [rbp - 48]
     ;mov r8d, dword[rbp - 64]  ;angle
-    movq xmm0, [rbp - 64] ;angle
+    mov r8, [rbp - 56]  ;deref angle
+    movq xmm0, [r8] ;angle
     xor r8, r8          ; center - if null rotation will be done around dstrect.w / 2, dstrect.h / 2 https://wiki.libsdl.org/SDL_RenderCopyEx
     xor r9, r9
     call SDL_RenderCopyEx ;render spaceship
 
 
-    cmp byte [rbp - 65], 0
-    je .skip_thrust
+    cmp byte [rbp - 65], 1
+    jne .skip_thrust
     mov rdi, [renderer]
     mov rsi, [ship_texture]
     lea rdx, [rbp - 32]
     lea rcx, [rbp - 48]
-    movq xmm0, [rbp - 64] ;angle
+    mov r8, [rbp - 56]  ;deref angle
+    movq xmm0, [r8] ;angle
     xor r8, r8          ; center - if null rotation will be done around dstrect.w / 2, dstrect.h / 2 https://wiki.libsdl.org/SDL_RenderCopyEx
     xor r9, r9
     call SDL_RenderCopyEx ;render thrust

@@ -1,6 +1,9 @@
     extern puts
     extern exit
 
+    extern cos
+    extern sin
+
     extern SDL_Init
     extern SDL_Quit
     extern SDL_CreateWindow
