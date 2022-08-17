@@ -5,10 +5,15 @@ bits 64
     %define SPACESHIP_SIZE 80
     %define SPACESHIP_RADIUS 20.0 ;used for collision detection
     %define SPACESHIP_SIZE_HALF SPACESHIP_SIZE/2
-    %define ROTATION_SPEED 4.0
+    %define ROTATION_SPEED 5.0
     %define ACCELERATION_SPEED 0.4
     %define FRICTION 0.98
     %define MAX_SPEED 1.0
+
+    %define BULLET_SIZE 40       ;in bytes.. [x,y,dx,dy,active] = 33 aligned to 40
+    %define BULLET_COUNT 32      ;max bullets
+    %define BULLET_SIZE 8
+    %define BULLET_SPEED 2.0
 
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
@@ -20,11 +25,15 @@ section .bss
     renderer: resq 1
     asteroids_texture: resq 1
     ship_texture: resq 1
+    bullet_texture: resq 1
+    bullets: resb BULLET_COUNT*BULLET_SIZE
+
 
 section .data
     title: db "asteroids-asm", 0 
     asteroids_texture_path: db "assets/asteroids.png", 0
     ship_texture_path: db "assets/ship.png", 0
+    bullet_texture_path: db "assets/bullet.png", 0
     error_text : db "ERROR", 0
 
 ; RDI, RSI, RDX, RCX, R8, R9
@@ -105,6 +114,13 @@ main:
     mov rax, 0
     leave
     ret          
+
+;
+shoot:
+    enter 16,0
+
+    leave
+    ret
 
 ;*thrust (bool) [thrust, shoot], *angle (double) [angle, x, y, dx, dy]
 update_spaceship:
@@ -513,6 +529,13 @@ cleanup:
     mov rdi, [asteroids_texture]
     call SDL_DestroyTexture
 
+    ; Destory spaceship texture
+    mov rdi, [ship_texture]
+    call SDL_DestroyTexture
+
+    ; Destroy bullet texture
+    mov rdi, [bullet_texture]
+    call SDL_DestroyTexture
 
     ; Quit SDL_image
     call IMG_Quit
@@ -526,6 +549,7 @@ cleanup:
 load_textures:
     enter 16,0
 
+    ;------------------------------------------------------------
     ; Load asteroid texture
     mov rdi, asteroids_texture_path
     call IMG_Load
@@ -549,6 +573,8 @@ load_textures:
     mov rdi, [rbp - 8]
     call SDL_FreeSurface
 
+
+    ;------------------------------------------------------------
     ; Load ship texture
     mov rdi, ship_texture_path
     call IMG_Load
@@ -568,6 +594,29 @@ load_textures:
     ; Free surface
     mov rdi, [rbp - 8]
     call SDL_FreeSurface
+
+    
+    ;------------------------------------------------------------
+    ; Load bullet texture
+    mov rdi, bullet_texture_path
+    call IMG_Load
+    cmp rax, 0
+    je error_msg
+
+    mov [rbp - 8], rax ;save surface pointer for cleanup
+    mov rdi, [renderer]
+    mov rsi, rax
+    call SDL_CreateTextureFromSurface
+    mov [bullet_texture], rax
+
+    ; check if converted texture is NULL
+    cmp rax, 0
+    je error_msg
+
+    ; Free surface
+    mov rdi, [rbp - 8]
+    call SDL_FreeSurface
+
 
     leave
     ret
