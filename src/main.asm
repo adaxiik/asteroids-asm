@@ -2,7 +2,9 @@ bits 64
     global    main
     %include 'externs.asm'
     %include 'utils.asm'
-    %define SPACESHIP_SIZE 128
+    %define SPACESHIP_SIZE 80
+    %define SPACESHIP_RADIUS 20.0 ;used for collision detection
+    %define SPACESHIP_SIZE_HALF SPACESHIP_SIZE/2
     %define ROTATION_SPEED 4.0
     %define ACCELERATION_SPEED 0.4
     %define FRICTION 0.98
@@ -18,7 +20,6 @@ section .bss
     renderer: resq 1
     asteroids_texture: resq 1
     ship_texture: resq 1
-    
 
 section .data
     title: db "asteroids-asm", 0 
@@ -196,8 +197,12 @@ update_spaceship:
     movsd xmm1, [r9 - 8*4] ; dy
     subsd xmm0, xmm1
     movsd [r9 - 8*2], xmm0
-    
 
+    ; check borders
+    mov rdi, [rbp - 24]
+    add rdi, -8*1 ;x
+    call check_borders
+    
     mov rax, [rbp - 8] ;return keystates ptr back to rax
     
     ;shoot ?
@@ -239,7 +244,75 @@ update_spaceship:
     leave
     ret
 
+;*x (double) [x, y, dx, dy]
+check_borders:
+    enter 16,0
+    mov [rbp - 8], rdi
 
+    movsd xmm0, [rdi] ; x
+    movsd xmm1, [rdi - 8*1] ; y
+    mov r8, 40
+    pxor xmm2, xmm2
+    cvtsi2sd xmm2, r8 ; half size
+
+    addsd xmm0, xmm2 ; center x
+    addsd xmm1, xmm2 ; center y
+
+
+    mov r8, __float64__(0.0)
+    movq xmm3, r8
+    mov r8, __float64__(SPACESHIP_RADIUS)
+    movq xmm4, r8
+    addsd xmm3, xmm4 ; bound + spaceship radius
+
+    comisd xmm0, xmm3 ; 
+    ;if x < 0.0, x = 0.0
+    ja .x_greater_0
+    movsd xmm0, xmm3
+    mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0.0
+    .x_greater_0:
+
+    comisd xmm1, xmm3 ;
+    ;if y < 0.0, y = 0.0
+    ja .y_greater_0
+    movsd xmm1, xmm3
+    mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0.0
+    .y_greater_0:
+
+    mov r8, WIDTH
+    mov r9, HEIGHT
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    cvtsi2sd xmm3, r8 ; width
+    cvtsi2sd xmm4, r9 ; height
+    mov r8, __float64__(SPACESHIP_RADIUS)
+    movq xmm5, r8
+
+    subsd xmm3, xmm5 ; width - spaceship radius
+    subsd xmm4, xmm5 ; height - spaceship radius
+    
+    comisd xmm0, xmm3
+    ;if x > width, x = width
+    jb .x_less_width
+    movsd xmm0, xmm3
+    mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0
+    .x_less_width:
+
+    comisd xmm1, xmm4
+    ;if y > height, y = height
+    jb .y_less_height
+    movsd xmm1, xmm4
+    mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0
+    .y_less_height:
+
+    ; offset center back
+    subsd xmm0, xmm2
+    subsd xmm1, xmm2
+    movsd [rdi], xmm0
+    movsd [rdi - 8*1], xmm1
+
+    leave 
+    ret
 
 ; *[angle, x, y](doubles), thrust(bool)
 render_spaceship:
