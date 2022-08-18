@@ -7,7 +7,6 @@ bits 64
     %define ROTATION_SPEED 5.0
     %define ACCELERATION_SPEED 0.4
     %define FRICTION 0.98
-    %define MAX_SPEED 1.0
     
     %define SHOOT_DELAY 200
     %define BULLET_SIZE 48          ;in bytes.. [x,y,dx,dy,time,active] = 41 aligned to 48
@@ -15,7 +14,8 @@ bits 64
     %define BULLET_SRC_WH 20        ;width and height of bullet texture
     %define BULLET_WH 16            ;width and height of rendered bullet
     %define BULLET_WH_HALF BULLET_WH/2
-    %define BULLET_SPEED 2.0
+    %define BULLET_SPEED 10.0
+    %define BULLET_LIFETIME 5000    ;in ms
 
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
@@ -110,6 +110,9 @@ main:
     lea rsi, [rbp - 64]
     call update_spaceship
 
+    ;update bullets
+    call update_bullets
+
     ;render bullets
     call render_bullets
 
@@ -133,6 +136,48 @@ main:
     mov rax, 0
     leave
     ret          
+
+update_bullets:
+    enter 16,0
+    ; -8 counter
+    ; -16 current time
+    mov qword [rbp - 8], 0
+    call SDL_GetTicks64
+    mov qword [rbp - 16], rax ;current time
+
+    .update:
+        xor rdx, rdx
+        mov rax, BULLET_SIZE
+        mul qword [rbp - 8]
+        cmp byte [bullet_pool + rax + 41], 0  ;bullet_pool + bullet_offset + 41 == active ?
+        je .skip_update
+            ;if active == 1
+            ;position += velocity
+            movsd xmm0, [bullet_pool + rax + 8*0] ;x
+            movsd xmm1, [bullet_pool + rax + 8*1] ;y
+            movsd xmm2, [bullet_pool + rax + 8*2] ;dx
+            movsd xmm3, [bullet_pool + rax + 8*3] ;dy
+
+            addsd xmm0, xmm2
+            subsd xmm1, xmm3
+            movsd [bullet_pool + rax + 8*0], xmm0
+            movsd [bullet_pool + rax + 8*1], xmm1
+
+            ;check bullet lifetime and deactivate if expired
+            mov rdx, [rbp - 16]
+            sub rdx, [bullet_pool + rax + 8*4] ;time
+            cmp rdx, BULLET_LIFETIME
+            jb .should_live
+                mov byte [bullet_pool + rax + 41], 0
+            .should_live:
+        .skip_update:
+    inc qword [rbp -8] ; counter++
+    cmp qword [rbp - 8], BULLET_POOL_SIZE
+    jne .update
+
+
+    leave
+    ret
 
 ; *[angle,x,y,dx,dy] (double)
 shoot:
@@ -159,29 +204,59 @@ shoot:
 
             mov rcx, qword [rbp - 8] ;load angle ptr
 
-            mov rdx, qword [rcx - 8*1]     ;deref x
-            mov r8, qword [rcx - 8*2]      ;deref y     
+            mov rdx, qword [rcx - 8 * 1]     ;deref x
+            mov r8, qword [rcx - 8 * 2]      ;deref y     
 
             mov rax, qword [rbp - 16]     ;load bullet addr
             mov qword [rax + 8 * 0], rdx ;x
             mov qword [rax + 8 * 1], r8 ;y
 
-            ; movq xmm0, [rax + 8 * 0]      ;deref dx
-            ; mov rdi, print_double
-            ; mov rax, 1
-            ; call printf
-
             call SDL_GetTicks64
             mov rdx, [rbp - 16] ;load bullet addr
             mov qword [rdx + 8 * 4], rax ;time
 
+            ;==============================================
+            ;calculate dx and dy
+            ;dx = cos(angle*DEG2RAD) * BULLET_SPEED
+            mov rcx, qword [rbp - 8] ;load angle ptr
+
+            movq xmm0, [rcx - 8 * 0]     ;deref angle     
+            mov r8, __float64__(DEG2RAD) ;DEG2RAD
+            movq xmm1, r8
+            mulsd xmm0, xmm1          ;angle * DEG2RAD
+            
+            call sin
+
+            mov r8, __float64__(BULLET_SPEED)
+            movq xmm1, r8
+            mulsd xmm0, xmm1
+            mov rax, [rbp - 16]
+            movq [rax + 8 * 2], xmm0 ;dx
+
+            ; ;dy = sin(angle*DEG2RAD) * BULLET_SPEED
+            mov rcx, qword [rbp - 8]
+            movq xmm0, [rcx - 8 * 0]     ;deref angle
+            mov r8, __float64__(DEG2RAD) ;DEG2RAD
+            movq xmm1, r8
+            mulsd xmm0, xmm1          ;angle * DEG2RAD
+
+            call cos
+
+            mov r8, __float64__(BULLET_SPEED)
+            movq xmm1, r8
+            mulsd xmm0, xmm1
+            mov rax, [rbp - 16]
+            movq [rax + 8 * 3], xmm0 ;dy
+
+
+            ;==============================================
 
         .out_of_bullets:
         ; do nothing
-        mov rdi, print_long
-        mov rsi, [rbp - 16]
-        xor rax, rax
-        call printf
+        ; mov rdi, print_long
+        ; mov rsi, [rbp - 16]
+        ; xor rax, rax
+        ; call printf
     .wait_till_can_shoot:
 
     leave
@@ -263,13 +338,11 @@ update_spaceship:
     mov [rbp - 16], rdi
     mov [rbp - 24], rsi
 
-
     xor rdi, rdi
     call SDL_GetKeyboardState
     mov [rbp - 8], rax
 
     ;-----------------------------------
-
     ; thurst ?
     movsx rcx, byte[rax + SDL_SCANCODE_W]
     mov r8, [rbp - 16]
