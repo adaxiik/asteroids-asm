@@ -3,9 +3,9 @@ Asteroids game written in nasm assembly
 
 ## Current state
 - Spaceship movement and rendering
+- Bullet shooting and rendering (from bullet pool)
 
 ## Future plans
-- Spaceship shooting
 - Asteroids generation
 - Collision detection
 - Maybe some simple ui
