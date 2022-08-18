@@ -1,7 +1,6 @@
 bits 64
     global    main
-    %include 'externs.asm'
-    %include 'utils.asm'
+
     %define SPACESHIP_SIZE 80
     %define SPACESHIP_RADIUS 20.0 ;used for collision detection
     %define SPACESHIP_SIZE_HALF SPACESHIP_SIZE/2
@@ -9,10 +8,13 @@ bits 64
     %define ACCELERATION_SPEED 0.4
     %define FRICTION 0.98
     %define MAX_SPEED 1.0
-
-    %define BULLET_SIZE 40       ;in bytes.. [x,y,dx,dy,active] = 33 aligned to 40
-    %define BULLET_COUNT 32      ;max bullets
-    %define BULLET_SIZE 8
+    
+    %define SHOOT_DELAY 200
+    %define BULLET_SIZE 48          ;in bytes.. [x,y,dx,dy,time,active] = 41 aligned to 48
+    %define BULLET_POOL_SIZE 32     ;max bullets
+    %define BULLET_SRC_WH 20        ;width and height of bullet texture
+    %define BULLET_WH 16            ;width and height of rendered bullet
+    %define BULLET_WH_HALF BULLET_WH/2
     %define BULLET_SPEED 2.0
 
     %define DEG2RAD 0.0174532925
@@ -20,13 +22,18 @@ bits 64
     %define HEIGHT 768
     %define CENTER_X 512.0
     %define CENTER_Y 384.0
+
+    %include 'externs.asm'
+    %include 'utils.asm'
+
 section .bss
     window: resq 1
     renderer: resq 1
     asteroids_texture: resq 1
     ship_texture: resq 1
     bullet_texture: resq 1
-    bullets: resb BULLET_COUNT*BULLET_SIZE
+    bullet_pool: resb BULLET_POOL_SIZE*BULLET_SIZE
+    last_time_shoot: resq 1
 
 
 section .data
@@ -35,6 +42,8 @@ section .data
     ship_texture_path: db "assets/ship.png", 0
     bullet_texture_path: db "assets/bullet.png", 0
     error_text : db "ERROR", 0
+    print_long : db "%ld",10, 0
+    print_double: db "%lf",10, 0
 
 ; RDI, RSI, RDX, RCX, R8, R9
 section   .text
@@ -53,15 +62,22 @@ main:
     ;-97 : thrust (bool)
     ;-98 ; shoot (bool)
 
+    ; setup init values x,y
     mov rax, __float64__(512.0)
     mov qword [rbp-72], rax
     mov rax, __float64__(384.0)
     mov qword [rbp-80], rax
 
+    ; setup init values dx,dy
     mov rax, __float64__(0.0)
     mov qword [rbp-88], rax
     mov qword [rbp-96], rax
 
+    ; zero init values for bullets, even though it should be zero inicialized
+    mov rdi, bullet_pool
+    xor rsi, rsi
+    mov rdx, BULLET_POOL_SIZE*BULLET_SIZE
+    call memset
 
     ; Main loop
     .main_loop:
@@ -87,12 +103,15 @@ main:
     
     call render_bg
 
-    call render_animation
+    ;call render_animation
 
     ;update spaceship
     lea rdi, [rbp - 97]
     lea rsi, [rbp - 64]
     call update_spaceship
+
+    ;render bullets
+    call render_bullets
 
     ;render spaceship
 
@@ -115,14 +134,126 @@ main:
     leave
     ret          
 
-;
+; *[angle,x,y,dx,dy] (double)
 shoot:
     enter 16,0
+    ; -8 address of angle
+    ; -16 address of bullet
+    mov [rbp - 8], rdi
+
+    ;check if SHOOT_DELAY has passed
+    call SDL_GetTicks64
+    mov rcx, rax
+    mov rdx, [last_time_shoot]
+    sub rax, rdx
+    cmp rax, SHOOT_DELAY
+    jle .wait_till_can_shoot
+        mov [last_time_shoot], rcx
+        mov rdi, bullet_pool
+        call get_bullet    ;get bullet addr from pool with active == 0, or null if none available
+        mov [rbp - 16], rax ; save bullet addr
+        cmp rax, 0
+        je .out_of_bullets
+            ;shoot
+            mov byte [rax+41], 1 ;active = 1
+
+            mov rcx, qword [rbp - 8] ;load angle ptr
+
+            mov rdx, qword [rcx - 8*1]     ;deref x
+            mov r8, qword [rcx - 8*2]      ;deref y     
+
+            mov rax, qword [rbp - 16]     ;load bullet addr
+            mov qword [rax + 8 * 0], rdx ;x
+            mov qword [rax + 8 * 1], r8 ;y
+
+            ; movq xmm0, [rax + 8 * 0]      ;deref dx
+            ; mov rdi, print_double
+            ; mov rax, 1
+            ; call printf
+
+            call SDL_GetTicks64
+            mov rdx, [rbp - 16] ;load bullet addr
+            mov qword [rdx + 8 * 4], rax ;time
+
+
+        .out_of_bullets:
+        ; do nothing
+        mov rdi, print_long
+        mov rsi, [rbp - 16]
+        xor rax, rax
+        call printf
+    .wait_till_can_shoot:
 
     leave
     ret
 
-;*thrust (bool) [thrust, shoot], *angle (double) [angle, x, y, dx, dy]
+render_bullets:
+    enter 48,0
+    ; -16 bullet rect
+    ; -32 dest rect
+    ; -40 counter
+
+    mov qword [rbp - 40], 0
+
+    .render_bullet:
+        mov rax, BULLET_SIZE
+        xor rdx, rdx
+        mul qword [rbp - 40]  ; addr offset of bullet in rax
+        cmp byte [bullet_pool + rax + 41], 0 ; active == 0 ? (41 is offset of active bool)
+        je .skip_rendering ; skip bullet rendering if not active
+
+        lea rdi, [rbp - 16]
+        xor rsi, rsi
+        xor rdx, rdx
+        mov rcx, BULLET_SRC_WH
+        mov r8, BULLET_SRC_WH
+        call create_rect       ;create texture pos rect
+
+        ;convert x,y to long
+        movq xmm0, [bullet_pool + rax + 8 * 0] ;x
+        movq xmm1, [bullet_pool + rax + 8 * 1] ;y
+        
+        ;===================================================
+        ; to render bullet at center
+        mov r9, SPACESHIP_SIZE_HALF
+        pxor xmm2, xmm2
+        cvtsi2sd xmm2, r9 ;xmm2 = SPACESHIP_SIZE_HALF
+        addsd xmm0, xmm2 ;xmm0 = x + SPACESHIP_SIZE_HALF
+        addsd xmm1, xmm2 ;xmm1 = y + SPACESHIP_SIZE_HALF
+
+        mov r9, BULLET_WH_HALF
+        pxor xmm2, xmm2
+        cvtsi2sd xmm2, r9 ;xmm2 = BULLET_WH_HALF
+        subsd xmm0, xmm2 ;xmm0 = x - BULLET_WH_HALF
+        subsd xmm1, xmm2 ;xmm1 = y - BULLET_WH_HALF
+
+        ;===================================================
+        cvtsd2si rsi, xmm0
+        cvtsd2si rdx, xmm1
+
+
+        lea rdi, [rbp - 32]
+        mov rcx, BULLET_WH
+        mov r8, BULLET_WH
+        call create_rect       ;create dest rect
+
+        mov rdi, [renderer]
+        mov rsi, [bullet_texture]
+        lea rdx, [rbp - 16]
+        lea rcx, [rbp - 32]
+        call SDL_RenderCopy
+
+        .skip_rendering:
+        inc qword [rbp - 40]
+        cmp qword [rbp - 40], BULLET_POOL_SIZE
+        
+    jne .render_bullet
+
+
+    leave
+    ret
+
+;*[thrust, shoot], *[angle, x, y, dx, dy] (double)
 update_spaceship:
     enter 32,0
     ; -8 keystates
@@ -222,10 +353,16 @@ update_spaceship:
     mov rax, [rbp - 8] ;return keystates ptr back to rax
     
     ;shoot ?
-    ; movsx r9, byte [rax + SDL_SCANCODE_SPACE]
+    mov cl, byte [rax + SDL_SCANCODE_SPACE]
     ; mov r8, [rbp - 16]
-    ; mov [r8 + 1], r9 ; &thrust+1 = &shoot
+    ; mov byte [r8 - 1], cl ; &thrust+1 = &shoot
+    cmp cl, 1
+    jne .skip_shoot
+        mov rdi, [rbp - 24]
+        call shoot
+    .skip_shoot:
 
+    mov rax, [rbp - 8] ;return keystates ptr back to rax
     ;angle+ (right)
     movsx r9, byte[rax + SDL_SCANCODE_D]          ;bool
     cmp r9, 1

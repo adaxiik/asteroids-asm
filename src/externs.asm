@@ -1,5 +1,7 @@
     extern puts
     extern exit
+    extern memset
+    extern printf
 
     extern cos
     extern sin
@@ -20,6 +22,7 @@
     extern SDL_CreateTextureFromSurface
     extern SDL_DestroyTexture
     extern SDL_GetTicks
+    extern SDL_GetTicks64
     extern SDL_GetKeyboardState
 
     %define SDL_INIT_VIDEO 32
