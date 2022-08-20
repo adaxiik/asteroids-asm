@@ -17,6 +17,15 @@ bits 64
     %define BULLET_SPEED 10.0
     %define BULLET_LIFETIME 5000    ;in ms
 
+    %define MAX_LEVEL 16
+    %define ASTEROID_SIZE 40 ;in bytes.. [x,y,dy,dy,active]
+    %define ASTEROID_POOL_SIZE MAX_LEVEL
+    %define ASTEROID_SPEED_MAX  5.0
+    %define ASTEROID_SPEED_MIN  1.0
+    %define ASTEROID_SRC_WH 75
+    %define ASTEROID_WH 128 ;width and height 
+
+
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
     %define HEIGHT 768
@@ -30,6 +39,7 @@ section .bss
     window: resq 1
     renderer: resq 1
     asteroids_texture: resq 1
+    asteroid_pool: resb ASTEROID_POOL_SIZE*ASTEROID_SIZE
     ship_texture: resq 1
     bullet_texture: resq 1
     bullet_pool: resb BULLET_POOL_SIZE*BULLET_SIZE
@@ -79,6 +89,12 @@ main:
     mov rdx, BULLET_POOL_SIZE*BULLET_SIZE
     call memset
 
+    ; zero init values for asteroids
+    mov rdi, asteroid_pool
+    xor rsi, rsi
+    mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
+    call memset
+
     ; Main loop
     .main_loop:
 
@@ -110,6 +126,9 @@ main:
     lea rsi, [rbp - 64]
     call update_spaceship
 
+    ;update asteroids
+    call update_asteroids
+
     ;update bullets
     call update_bullets
 
@@ -117,7 +136,6 @@ main:
     call render_bullets
 
     ;render spaceship
-
     lea rdi, [rbp - 64] ; *[angle,x,y]
     mov rsi, [rbp - 97] ; thrust
     call render_spaceship
@@ -135,7 +153,30 @@ main:
     
     mov rax, 0
     leave
-    ret          
+    ret     
+
+update_asteroids:
+    enter 16,0
+    ; -8 : counter
+    mov qword [rbp - 8], 0
+
+    .update:
+        xor rdx, rdx
+        mov rax, ASTEROID_SIZE
+        mul qword [rbp - 8]
+        cmp byte [asteroid_pool + rax + 33], 0 ;active offset
+        je .skip_update
+        ;update asteroid
+            
+
+
+        .skip_update:
+        inc qword [rbp - 8]
+        cmp qword [rbp - 8], ASTEROID_POOL_SIZE
+        jne .update
+
+    leave
+    ret     
 
 update_bullets:
     enter 16,0
