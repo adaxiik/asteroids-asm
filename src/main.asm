@@ -388,12 +388,6 @@ shoot:
             movq xmm1, rdx
             movq xmm2, r8
             ; spawn bullet at center of ship
-            mov r9, SPACESHIP_SIZE_HALF
-            pxor xmm0, xmm0
-            cvtsi2sd xmm0, r9 ;xmm2 = SPACESHIP_SIZE_HALF
-            addsd xmm1, xmm0 ;xmm0 = x + SPACESHIP_SIZE_HALF
-            addsd xmm2, xmm0 ;xmm1 = y + SPACESHIP_SIZE_HALF
-
 
             mov rax, qword [rbp - 16]     ;load bullet addr
             movsd [rax + 8 * 0], xmm1
@@ -657,14 +651,8 @@ check_borders:
     enter 16,0
     mov [rbp - 8], rdi
 
-    movsd xmm0, [rdi] ; x
-    movsd xmm1, [rdi - 8*1] ; y
-    mov r8, 40
-    pxor xmm2, xmm2
-    cvtsi2sd xmm2, r8 ; half size
-
-    addsd xmm0, xmm2 ; center x
-    addsd xmm1, xmm2 ; center y
+    movsd xmm0, [rdi - 8 * 0] ; x
+    movsd xmm1, [rdi - 8 * 1] ; y
 
 
     mov r8, __float64__(0.0)
@@ -713,11 +701,9 @@ check_borders:
         mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0
     .y_less_height:
 
-    ; offset center back
-    subsd xmm0, xmm2
-    subsd xmm1, xmm2
-    movsd [rdi], xmm0
-    movsd [rdi - 8*1], xmm1
+
+    movsd [rdi - 8 * 0], xmm0
+    movsd [rdi - 8 * 1], xmm1
 
     leave 
     ret
@@ -737,17 +723,21 @@ render_spaceship:
     mov qword  [rbp - 56], rdi
     mov byte [rbp - 65], sil
 
+    mov rax, SPACESHIP_SIZE_HALF
+    pxor xmm1, xmm1
+    cvtsi2sd xmm1, rax
+
     ; convert x to int
     movq xmm0, [rdi - 8 * 1] ;x
+    subsd xmm0, xmm1 ; to render from center
     cvtsd2si eax, xmm0
     mov dword [rbp - 60], eax
 
     ; convert y to int
     movsd xmm0, [rdi - 8 * 2] ;y
+    subsd xmm0, xmm1 ; to render from center
     cvtsd2si eax, xmm0
     mov dword [rbp - 64], eax
-
-    ; TODO: render from center
 
     lea rdi, [rbp - 16]
     xor rsi, rsi
