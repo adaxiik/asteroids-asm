@@ -28,6 +28,10 @@ bits 64
     %define ASTEROID_WH 128 ;width and height 
     %define ASTEROID_WH_HALF ASTEROID_WH/2
     %define ASTEROID_RADIUS 30.0
+    %define ASTEROID_ANIMATION_FPS 20
+    %define ASTEROID_FRAME_MS 1000/ASTEROID_ANIMATION_FPS
+    %define ASTEROID_ANIMATION_FRAMES 23 ;number of frames in animation
+
 
 
     %define DEG2RAD 0.0174532925
@@ -77,9 +81,9 @@ main:
     ;-98 ; shoot (bool)
 
     ; setup init values x,y
-    mov rax, __float64__(512.0)
+    mov rax, __float64__(CENTER_X)
     mov qword [rbp-72], rax
-    mov rax, __float64__(384.0)
+    mov rax, __float64__(CENTER_Y)
     mov qword [rbp-80], rax
 
     ; setup init values dx,dy
@@ -99,7 +103,7 @@ main:
     mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
     call memset
 
-    ; enable one asteroid manually for testing
+    ; enable one asteroid manualy for testing
     mov rax, __float64__(220.0)
     mov qword [asteroid_pool + 8 * 0], rax
     mov rax, __float64__(400.0)
@@ -108,8 +112,7 @@ main:
     mov qword [asteroid_pool + 8 * 2], rax
     mov qword [asteroid_pool + 8 * 3], rax
     mov byte [asteroid_pool + 33], 1
-    mov byte [asteroid_pool + 34], 0
-
+    mov byte [asteroid_pool + 34], 5
     ; Main loop
     .main_loop:
 
@@ -178,22 +181,53 @@ render_asteroids:
     ; -16 asteroid rect
     ; -32 dest rect
     ; -40 counter
+    ; -48 sprite id
     mov qword [rbp - 40], 0
+
+    ; (time/ms_per_frame)%frames
+    call SDL_GetTicks64
+    xor rdx, rdx
+    mov r8, ASTEROID_FRAME_MS
+    div r8
+
+    xor rdx, rdx
+    mov r8, ASTEROID_ANIMATION_FRAMES
+    div r8
+    mov qword [rbp - 48], rdx
+
+    xor rdx, rdx
+    mov rax, ASTEROID_SRC_WH
+    mul qword [rbp - 48]
+    mov qword [rbp - 48], rax    ; -48 == sprite id
     
     .render_asteroid:
         xor rdx, rdx
         mov rax, ASTEROID_SIZE
         mul qword [rbp - 40] ; calc index offset
+        mov r9, rax ;addr offset
 
-        cmp byte [asteroid_pool + rax + 33], 0 ; if active
+        cmp byte [asteroid_pool + r9 + 33], 0 ; if active
         je .skip_rendering
         ;render asteroid
-            lea rdi, [rbp - 16]
-            xor rsi, rsi 
+        
+            ; set asteroid type (y axis in sprites)
             xor rdx, rdx
+            xor rax, rax
+            mov al, byte[asteroid_pool + r9 + 34] ; type
+            mov r8, ASTEROID_SRC_WH
+            mul r8
+            mov rdx, rax
+
+            ;calc src rect
+            lea rdi, [rbp - 16]
+            ;xor rsi, rsi 
+            mov rsi, qword [rbp - 48]
+            ;xor rdx, rdx
             mov rcx, ASTEROID_SRC_WH
             mov r8, ASTEROID_SRC_WH
             call create_rect    ; texture rect
+
+            mov rax, r9 ;move addr offset back
 
             ;convert x,y to long
             movsd xmm0, [asteroid_pool + rax + 8 * 0]

@@ -4,6 +4,7 @@ Asteroids game written in nasm assembly
 ## Current state
 - Spaceship movement and rendering
 - Bullet shooting and rendering (from bullet pool)
+- Asteroid rendering and movement
 
 ## Future plans
 - Asteroids generation
@@ -22,3 +23,6 @@ Asteroids game written in nasm assembly
 ## Resources
 - https://poli.cs.vsb.cz/edu/apps/soj/down/soj-syllabus.pdf
 - https://godbolt.org/
+
+## Note
+- Game should run at 60 fps.. or game speed may vary.. (messing with delta time didn't work well :c )
