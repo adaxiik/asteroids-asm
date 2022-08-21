@@ -1,13 +1,14 @@
 bits 64
     global    main
 
-    %define SPACESHIP_SIZE 80
+    %define SPACESHIP_SIZE 80       ;in px
     %define SPACESHIP_RADIUS 20.0 ;used for collision detection
     %define SPACESHIP_SIZE_HALF SPACESHIP_SIZE/2
     %define ROTATION_SPEED 5.0
     %define ACCELERATION_SPEED 0.4
     %define FRICTION 0.98
     
+    ; bullet position is set at center
     %define SHOOT_DELAY 200
     %define BULLET_SIZE 48          ;in bytes.. [x,y,dx,dy,time,active] = 41 aligned to 48
     %define BULLET_POOL_SIZE 32     ;max bullets
@@ -17,13 +18,16 @@ bits 64
     %define BULLET_SPEED 10.0
     %define BULLET_LIFETIME 5000    ;in ms
 
+    ; asteroid position is set at center of asteroid
     %define MAX_LEVEL 16
-    %define ASTEROID_SIZE 40 ;in bytes.. [x,y,dy,dy,active]
+    %define ASTEROID_SIZE 40 ;in bytes.. [x,y,dy,dy,active(bool),type(uchar/byte)] .. 34 aligned to 40
     %define ASTEROID_POOL_SIZE MAX_LEVEL
     %define ASTEROID_SPEED_MAX  5.0
     %define ASTEROID_SPEED_MIN  1.0
     %define ASTEROID_SRC_WH 75
     %define ASTEROID_WH 128 ;width and height 
+    %define ASTEROID_WH_HALF ASTEROID_WH/2
+    %define ASTEROID_RADIUS 30.0
 
 
     %define DEG2RAD 0.0174532925
@@ -95,6 +99,17 @@ main:
     mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
     call memset
 
+    ; enable one asteroid manually for testing
+    mov rax, __float64__(220.0)
+    mov qword [asteroid_pool + 8 * 0], rax
+    mov rax, __float64__(400.0)
+    mov qword [asteroid_pool + 8 * 1], rax
+    mov rax, __float64__(-5.0)
+    mov qword [asteroid_pool + 8 * 2], rax
+    mov qword [asteroid_pool + 8 * 3], rax
+    mov byte [asteroid_pool + 33], 1
+    mov byte [asteroid_pool + 34], 0
+
     ; Main loop
     .main_loop:
 
@@ -119,7 +134,6 @@ main:
     
     call render_bg
 
-    ;call render_animation
 
     ;update spaceship
     lea rdi, [rbp - 97]
@@ -134,6 +148,10 @@ main:
 
     ;render bullets
     call render_bullets
+
+    ;call render_animation
+
+    call render_asteroids
 
     ;render spaceship
     lea rdi, [rbp - 64] ; *[angle,x,y]
@@ -153,7 +171,68 @@ main:
     
     mov rax, 0
     leave
-    ret     
+    ret    
+
+render_asteroids:
+    enter 48,0
+    ; -16 asteroid rect
+    ; -32 dest rect
+    ; -40 counter
+    mov qword [rbp - 40], 0
+    
+    .render_asteroid:
+        xor rdx, rdx
+        mov rax, ASTEROID_SIZE
+        mul qword [rbp - 40] ; calc index offset
+
+        cmp byte [asteroid_pool + rax + 33], 0 ; if active
+        je .skip_rendering
+        ;render asteroid
+            lea rdi, [rbp - 16]
+            xor rsi, rsi 
+            xor rdx, rdx
+            mov rcx, ASTEROID_SRC_WH
+            mov r8, ASTEROID_SRC_WH
+            call create_rect    ; texture rect
+
+            ;convert x,y to long
+            movsd xmm0, [asteroid_pool + rax + 8 * 0]
+            movsd xmm1, [asteroid_pool + rax + 8 * 1]
+
+            ;=====================
+            ; to render asteroid at center
+            mov r8, ASTEROID_WH_HALF
+            pxor xmm2, xmm2
+            cvtsi2sd xmm2, r8
+            subsd xmm0, xmm2
+            subsd xmm1, xmm2
+            ;=====================
+
+
+            cvtsd2si rsi, xmm0
+            cvtsd2si rdx, xmm1
+
+            lea rdi, [rbp - 32]
+            mov rcx, ASTEROID_WH
+            mov r8, ASTEROID_WH
+            call create_rect    ; dest rect
+
+            ; render asteroid
+            mov rdi, [renderer]
+            mov rsi, [asteroids_texture]
+            lea rdx, [rbp - 16]
+            lea rcx, [rbp - 32]
+            call SDL_RenderCopy
+
+
+        .skip_rendering:
+        inc qword [rbp - 40]
+        cmp qword [rbp - 40], ASTEROID_POOL_SIZE
+        jne .render_asteroid 
+ 
+
+    leave
+    ret
 
 update_asteroids:
     enter 16,0
@@ -167,8 +246,66 @@ update_asteroids:
         cmp byte [asteroid_pool + rax + 33], 0 ;active offset
         je .skip_update
         ;update asteroid
-            
+            ;update asteroid position
+            movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x
+            movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y
+            movsd xmm2, [asteroid_pool + rax + 8 * 2] ;dx
+            movsd xmm3, [asteroid_pool + rax + 8 * 3] ;dy
+            addsd xmm0, xmm2
+            addsd xmm1, xmm3
+            movsd [asteroid_pool + rax + 8 * 0], xmm0
+            movsd [asteroid_pool + rax + 8 * 1], xmm1
 
+            ;d *-1 if out of screen
+            mov r8, __float64__(0.0)
+            movq xmm4, r8
+        
+            mov r8, __float64__(ASTEROID_RADIUS)
+            movq xmm5, r8
+            addsd xmm4, xmm5
+            
+            mov r8, __float64__(-1.0)
+            movq xmm5, r8
+
+            ; if x < 0
+            comisd xmm0, xmm4
+            ja .x_greater_0
+                mulsd xmm2, xmm5
+                movsd [asteroid_pool + rax + 8 * 2], xmm2 ; *-1
+            .x_greater_0:
+
+            ; if y < 0
+            comisd xmm1, xmm4
+            ja .y_greater_0
+                mulsd xmm3, xmm5
+                movsd [asteroid_pool + rax + 8 * 3], xmm3 ; *-1
+            .y_greater_0:
+
+            mov r8, WIDTH
+            mov r9, HEIGHT
+            pxor xmm6, xmm6
+            pxor xmm7, xmm7
+            cvtsi2sd xmm6, r8
+            cvtsi2sd xmm7, r9
+
+            mov r8, __float64__(ASTEROID_RADIUS)
+            movq xmm4, r8
+            subsd xmm6, xmm4
+            subsd xmm7, xmm4
+
+            ; if x > WIDTH
+            comisd xmm0, xmm6
+            jb .x_less_width
+                mulsd xmm2, xmm5
+                movsd [asteroid_pool + rax + 8 * 2], xmm2 ; dx
+            .x_less_width:
+
+            ; if y > HEIGHT
+            comisd xmm1, xmm7
+            jb .y_less_height
+                mulsd xmm3, xmm5
+                movsd [asteroid_pool + rax + 8 * 3], xmm3 ; dy
+            .y_less_height:
 
         .skip_update:
         inc qword [rbp - 8]
@@ -248,9 +385,19 @@ shoot:
             mov rdx, qword [rcx - 8 * 1]     ;deref x
             mov r8, qword [rcx - 8 * 2]      ;deref y     
 
+            movq xmm1, rdx
+            movq xmm2, r8
+            ; spawn bullet at center of ship
+            mov r9, SPACESHIP_SIZE_HALF
+            pxor xmm0, xmm0
+            cvtsi2sd xmm0, r9 ;xmm2 = SPACESHIP_SIZE_HALF
+            addsd xmm1, xmm0 ;xmm0 = x + SPACESHIP_SIZE_HALF
+            addsd xmm2, xmm0 ;xmm1 = y + SPACESHIP_SIZE_HALF
+
+
             mov rax, qword [rbp - 16]     ;load bullet addr
-            mov qword [rax + 8 * 0], rdx ;x
-            mov qword [rax + 8 * 1], r8 ;y
+            movsd [rax + 8 * 0], xmm1
+            movsd [rax + 8 * 1], xmm2
 
             call SDL_GetTicks64
             mov rdx, [rbp - 16] ;load bullet addr
@@ -326,16 +473,11 @@ render_bullets:
         call create_rect       ;create texture pos rect
 
         ;convert x,y to long
-        movq xmm0, [bullet_pool + rax + 8 * 0] ;x
-        movq xmm1, [bullet_pool + rax + 8 * 1] ;y
+        movsd xmm0, [bullet_pool + rax + 8 * 0] ;x
+        movsd xmm1, [bullet_pool + rax + 8 * 1] ;y
         
         ;===================================================
         ; to render bullet at center
-        mov r9, SPACESHIP_SIZE_HALF
-        pxor xmm2, xmm2
-        cvtsi2sd xmm2, r9 ;xmm2 = SPACESHIP_SIZE_HALF
-        addsd xmm0, xmm2 ;xmm0 = x + SPACESHIP_SIZE_HALF
-        addsd xmm1, xmm2 ;xmm1 = y + SPACESHIP_SIZE_HALF
 
         mov r9, BULLET_WH_HALF
         pxor xmm2, xmm2
@@ -346,7 +488,6 @@ render_bullets:
         ;===================================================
         cvtsd2si rsi, xmm0
         cvtsd2si rdx, xmm1
-
 
         lea rdi, [rbp - 32]
         mov rcx, BULLET_WH
@@ -535,15 +676,15 @@ check_borders:
     comisd xmm0, xmm3 ; 
     ;if x < 0.0, x = 0.0
     ja .x_greater_0
-    movsd xmm0, xmm3
-    mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0.0
+        movsd xmm0, xmm3
+        mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0.0
     .x_greater_0:
 
     comisd xmm1, xmm3 ;
     ;if y < 0.0, y = 0.0
     ja .y_greater_0
-    movsd xmm1, xmm3
-    mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0.0
+        movsd xmm1, xmm3
+        mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0.0
     .y_greater_0:
 
     mov r8, WIDTH
@@ -561,15 +702,15 @@ check_borders:
     comisd xmm0, xmm3
     ;if x > width, x = width
     jb .x_less_width
-    movsd xmm0, xmm3
-    mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0
+        movsd xmm0, xmm3
+        mov qword [rdi - 8 * 2], __float64__(0.0) ; dx = 0
     .x_less_width:
 
     comisd xmm1, xmm4
     ;if y > height, y = height
     jb .y_less_height
-    movsd xmm1, xmm4
-    mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0
+        movsd xmm1, xmm4
+        mov qword [rdi - 8 * 3], __float64__(0.0) ; dy = 0
     .y_less_height:
 
     ; offset center back
@@ -606,8 +747,7 @@ render_spaceship:
     cvtsd2si eax, xmm0
     mov dword [rbp - 64], eax
 
-
-
+    ; TODO: render from center
 
     lea rdi, [rbp - 16]
     xor rsi, rsi
@@ -645,15 +785,15 @@ render_spaceship:
 
     cmp byte [rbp - 65], 1
     jne .skip_thrust
-    mov rdi, [renderer]
-    mov rsi, [ship_texture]
-    lea rdx, [rbp - 32]
-    lea rcx, [rbp - 48]
-    mov r8, [rbp - 56]  ;deref angle
-    movq xmm0, [r8] ;angle
-    xor r8, r8          ; center - if null rotation will be done around dstrect.w / 2, dstrect.h / 2 https://wiki.libsdl.org/SDL_RenderCopyEx
-    xor r9, r9
-    call SDL_RenderCopyEx ;render thrust
+        mov rdi, [renderer]
+        mov rsi, [ship_texture]
+        lea rdx, [rbp - 32]
+        lea rcx, [rbp - 48]
+        mov r8, [rbp - 56]  ;deref angle
+        movq xmm0, [r8] ;angle
+        xor r8, r8          ; center - if null rotation will be done around dstrect.w / 2, dstrect.h / 2 https://wiki.libsdl.org/SDL_RenderCopyEx
+        xor r9, r9
+        call SDL_RenderCopyEx ;render thrust
     .skip_thrust:
 
     leave 
