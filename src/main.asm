@@ -1,6 +1,7 @@
 bits 64
     global    main
 
+    ; spaceship position is set at center
     %define SPACESHIP_SIZE 80       ;in px
     %define SPACESHIP_RADIUS 20.0 ;used for collision detection
     %define SPACESHIP_SIZE_HALF SPACESHIP_SIZE/2
@@ -15,7 +16,7 @@ bits 64
     %define BULLET_SRC_WH 20        ;width and height of bullet texture
     %define BULLET_WH 16            ;width and height of rendered bullet
     %define BULLET_WH_HALF BULLET_WH/2
-    %define BULLET_SPEED 10.0
+    %define BULLET_SPEED 15.0
     %define BULLET_LIFETIME 5000    ;in ms
 
     ; asteroid position is set at center of asteroid
@@ -32,7 +33,7 @@ bits 64
     %define ASTEROID_FRAME_MS 1000/ASTEROID_ANIMATION_FPS
     %define ASTEROID_ANIMATION_FRAMES 23 ;number of frames in animation
 
-
+    %define SPACESHIP_PLUS_ASTEROID_RADIUS 50.0
 
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
@@ -62,6 +63,8 @@ section .data
     error_text : db "ERROR", 0
     print_long : db "%ld",10, 0
     print_double: db "%lf",10, 0
+    collision_text: db "COLLISION", 0
+    not_collision_text: db "not COLLISION", 0
 
 ; RDI, RSI, RDX, RCX, R8, R9
 section   .text
@@ -149,6 +152,10 @@ main:
     ;update bullets
     call update_bullets
 
+    ;check collisions
+    lea rdi, [rbp - 72] ; *[x,y]
+    call check_collisions
+
     ;render bullets
     call render_bullets
 
@@ -175,6 +182,61 @@ main:
     mov rax, 0
     leave
     ret    
+
+; *[x,y,dx,dy] (double)
+check_collisions:
+    enter 16,0
+    ; -8 asteroid counter
+    ; -16 spaceship pointer
+    
+    mov [rbp - 16], rdi
+    mov qword [rbp - 8], 0
+    .check:
+        xor rdx, rdx
+        mov rax, ASTEROID_SIZE
+        mul qword [rbp - 8]
+        cmp byte [asteroid_pool + rax + 33], 0 ;active offset
+        je .skip_check
+            ;check collision with spaceship
+            ; if distance < ASTEROID_RADIUS + SHIP_RADIUS
+            ; distance = sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2))
+            ; if (x1-x2)*(x1-x2) + (y1-y2)*(y1-y2) < (ASTEROID_RADIUS + SHIP_RADIUS)*(ASTEROID_RADIUS + SHIP_RADIUS)
+            movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x1
+            movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y1
+            mov rdx, [rbp - 16] ; [x,y]
+            movsd xmm2, [rdx - 8 * 0] ;x2
+            movsd xmm3, [rdx - 8 * 1] ;y2
+
+            subsd xmm0, xmm2 ;x1-x2
+            mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
+            subsd xmm1, xmm3 ;y1-y2
+            mulsd xmm1, xmm1 ;(y1-y2)*(y1-y2)
+            addsd xmm0, xmm1 ;(x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
+
+            mov r8, __float64__(SPACESHIP_PLUS_ASTEROID_RADIUS)
+            movq xmm1, r8
+            mulsd xmm1, xmm1 ;(ASTEROID_RADIUS + SHIP_RADIUS)*(ASTEROID_RADIUS + SHIP_RADIUS)
+
+            comisd xmm0, xmm1
+            ja .not_collide_ship
+                ;collision detected
+                mov rdi, collision_text
+                call puts
+                jmp .skip_not_coll_text
+            .not_collide_ship:
+                mov rdi, not_collision_text
+                call puts
+            .skip_not_coll_text:
+
+
+            ;check collision with bullets
+
+        .skip_check:
+        inc qword [rbp - 8]
+        cmp qword [rbp - 8], ASTEROID_POOL_SIZE
+        jne .check
+    leave
+    ret
 
 render_asteroids:
     enter 48,0
