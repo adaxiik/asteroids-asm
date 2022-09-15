@@ -34,6 +34,7 @@ bits 64
     %define ASTEROID_ANIMATION_FRAMES 23 ;number of frames in animation
 
     %define SPACESHIP_PLUS_ASTEROID_RADIUS 50.0
+    %define BULLET_PLUS_ASTEROID_RADIUS 40.0    ; see `check_collisions`
 
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
@@ -64,7 +65,6 @@ section .data
     print_long : db "%ld",10, 0
     print_double: db "%lf",10, 0
     collision_text: db "COLLISION", 0
-    not_collision_text: db "not COLLISION", 0
 
 ; RDI, RSI, RDX, RCX, R8, R9
 section   .text
@@ -185,16 +185,21 @@ main:
 
 ; *[x,y,dx,dy] (double)
 check_collisions:
-    enter 16,0
+    enter 32,0
     ; -8 asteroid counter
     ; -16 spaceship pointer
+    ; -24 bullet counter
+    ; -32 current asteroid offset
     
     mov [rbp - 16], rdi
     mov qword [rbp - 8], 0
+    mov qword [rbp - 24], 0
+    ; for each asteroid
     .check:
         xor rdx, rdx
-        mov rax, ASTEROID_SIZE
+        mov rax, ASTEROID_SIZE  ; in bytes
         mul qword [rbp - 8]
+        mov qword [rbp - 32], rax   ; save offset for bullet loop
         cmp byte [asteroid_pool + rax + 33], 0 ;active offset
         je .skip_check
             ;check collision with spaceship
@@ -203,13 +208,15 @@ check_collisions:
             ; if (x1-x2)*(x1-x2) + (y1-y2)*(y1-y2) < (ASTEROID_RADIUS + SHIP_RADIUS)*(ASTEROID_RADIUS + SHIP_RADIUS)
             movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x1
             movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y1
+            movsd xmm4, xmm0 ; copy x1 for bullet check
+            movsd xmm5, xmm1
             mov rdx, [rbp - 16] ; [x,y]
             movsd xmm2, [rdx - 8 * 0] ;x2
             movsd xmm3, [rdx - 8 * 1] ;y2
 
             subsd xmm0, xmm2 ;x1-x2
-            mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
             subsd xmm1, xmm3 ;y1-y2
+            mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
             mulsd xmm1, xmm1 ;(y1-y2)*(y1-y2)
             addsd xmm0, xmm1 ;(x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
 
@@ -222,15 +229,48 @@ check_collisions:
                 ;collision detected
                 mov rdi, collision_text
                 call puts
-                jmp .skip_not_coll_text
             .not_collide_ship:
-                mov rdi, not_collision_text
-                call puts
-            .skip_not_coll_text:
-
-
+                
             ;check collision with bullets
+            ; for each bullet
+            .check_bullet:
+                xor rdx, rdx
+                mov rax, BULLET_SIZE
+                mul qword [rbp - 24]
+                cmp byte [bullet_pool + rax + 41], 0 ;active offset
+                je .skip_bullet
+                ; if distance < ASTEROID_RADIUS + BULLET_RADIUS
+                ; asteroid x1,y1 is already in xmm4, xmm5
+                movq xmm0, xmm4
+                movq xmm1, xmm5
+                movq xmm2, [bullet_pool + rax + 8 * 0] ;x2
+                movq xmm3, [bullet_pool + rax + 8 * 1] ;y2
+                subsd xmm0, xmm2 ;x1-x2
+                subsd xmm1, xmm3 ;y1-y2
+                mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
+                mulsd xmm1, xmm1 ;(y1-y2)*(y1-y2)
+                addsd xmm0, xmm1 ;(x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
 
+                mov r8, __float64__(BULLET_PLUS_ASTEROID_RADIUS)
+                movq xmm1, r8
+                mulsd xmm1, xmm1 ;(ASTEROID_RADIUS + BULLET_RADIUS)*(ASTEROID_RADIUS + BULLET_RADIUS)
+
+                ;xmm0 = distance^2
+                ;xmm1 = (ASTEROID_RADIUS + BULLET_RADIUS)^2
+
+                comisd xmm0, xmm1
+                ja .not_collide_bullet
+                    ;collision detected
+                    ;deactivate bullet and asteroid
+                    mov byte [bullet_pool + rax + 41], 0
+                    mov rax, qword [rbp - 32]
+                    mov byte [asteroid_pool + rax + 33], 0
+                .not_collide_bullet:
+
+                .skip_bullet:
+                inc qword [rbp - 24]
+                cmp qword [rbp - 24], BULLET_POOL_SIZE
+                jne .check_bullet
         .skip_check:
         inc qword [rbp - 8]
         cmp qword [rbp - 8], ASTEROID_POOL_SIZE
