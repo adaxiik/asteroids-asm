@@ -2,6 +2,9 @@
     extern exit
     extern memset
     extern printf
+    extern rand
+    extern srand
+    extern time
 
     extern cos
     extern sin

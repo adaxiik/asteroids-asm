@@ -40,3 +40,33 @@ get_bullet:
     
     leave
     ret
+
+; double fRand(double fMin, double fMax)
+; {
+;     double f = (double)rand() / RAND_MAX;
+;     return fMin + f * (fMax - fMin);
+; }
+%define	RAND_MAX 2147483647
+; min, max
+; return in rax
+get_random_double:
+    enter 0,0
+
+    movq xmm0, rdi  ; min
+    movq xmm1, rsi  ; max
+    
+    call rand
+
+    cvtsi2sd xmm2, rax
+    mov rax, RAND_MAX
+    cvtsi2sd xmm3, rax
+    divsd xmm2, xmm3    ; xmm2 = (double)rand() / RAND_MAX
+
+    subsd xmm1, xmm0    ; xmm1 = max - min
+    mulsd xmm2, xmm1    ; xmm2 = f * (fMax - fMin)
+    addsd xmm2, xmm0    ; xmm2 = fMin + f * (fMax - fMin)
+
+    movq rax, xmm2
+
+    leave
+    ret

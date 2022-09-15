@@ -74,6 +74,11 @@ main:
     call setup_window_and_renderer
     call load_textures
 
+    xor rdi, rdi
+    call time
+    mov rdi, rax
+    call srand
+
     ;-56    : SDL_PollEvent e
     ;-64    : angle (double)
     ;-72    : x (double)
@@ -200,7 +205,8 @@ main:
 
 spawn_random_asteroid:
     enter 0,0
-
+    
+    
     leave
     ret
 
