@@ -1,5 +1,6 @@
 bits 64
     global    main
+    %define MAX_LEVEL 16
 
     ; spaceship position is set at center
     %define SPACESHIP_SIZE 80       ;in px
@@ -20,7 +21,6 @@ bits 64
     %define BULLET_LIFETIME 5000    ;in ms
 
     ; asteroid position is set at center of asteroid
-    %define MAX_LEVEL 16
     %define ASTEROID_SIZE 40 ;in bytes.. [x,y,dy,dy,active(bool),type(uchar/byte)] .. 34 aligned to 40
     %define ASTEROID_POOL_SIZE MAX_LEVEL
     %define ASTEROID_SPEED_MAX  5.0
@@ -74,14 +74,16 @@ main:
     call setup_window_and_renderer
     call load_textures
 
-    ;-56 : SDL_PollEvent e
-    ;-64 : angle (double)
-    ;-72 : x (double)
-    ;-80 : y (double)
-    ;-88 : dx (double)
-    ;-96 : dy (double)
-    ;-97 : thrust (bool)
-    ;-98 ; shoot (bool)
+    ;-56    : SDL_PollEvent e
+    ;-64    : angle (double)
+    ;-72    : x (double)
+    ;-80    : y (double)
+    ;-88    : dx (double)
+    ;-96    : dy (double)
+    ;-97    : thrust (bool)
+    ;-98    ; shoot (bool)
+    ;-104   ; alive asteroids (long)
+    ;-112   ; level (long)
 
     ; setup init values x,y
     mov rax, __float64__(CENTER_X)
@@ -106,7 +108,7 @@ main:
     mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
     call memset
 
-    ; enable one asteroid manualy for testing
+    ;enable one asteroid manualy for testing
     mov rax, __float64__(220.0)
     mov qword [asteroid_pool + 8 * 0], rax
     mov rax, __float64__(400.0)
@@ -116,6 +118,11 @@ main:
     mov qword [asteroid_pool + 8 * 3], rax
     mov byte [asteroid_pool + 33], 1
     mov byte [asteroid_pool + 34], 5
+
+    mov qword [rbp-104], 1    ; current alive asteroids
+    mov qword [rbp-112], 1    ; current level
+
+
     ; Main loop
     .main_loop:
 
@@ -135,10 +142,12 @@ main:
     jmp .event_loop
     .event_loop_end:
 
-
-    call SDL_RenderClear
-    
-    call render_bg
+    ; spawn new asteroids 
+    cmp qword [rbp - 104], 0 ;alive asteroids
+    jne .skip_spawn
+        lea rdi, [rbp - 104]
+        call spawn_asteroids
+    .skip_spawn:
 
 
     ;update spaceship
@@ -154,7 +163,13 @@ main:
 
     ;check collisions
     lea rdi, [rbp - 72] ; *[x,y]
+    lea rsi, [rbp - 104] ; *alive asteroids
     call check_collisions
+
+
+    call SDL_RenderClear
+    
+    call render_bg
 
     ;render bullets
     call render_bullets
@@ -183,17 +198,61 @@ main:
     leave
     ret    
 
-; *[x,y,dx,dy] (double)
+spawn_random_asteroid:
+    enter 0,0
+
+    leave
+    ret
+
+; *[alive_asteroids, level]
+spawn_asteroids:
+    enter 16,0
+    ; -8 : alive_asteroids ptr
+    mov [rbp - 8], rdi 
+
+    ; check if max level reached
+    mov r8, [rdi - 8] ; level
+    cmp r8, MAX_LEVEL
+    jb .max_level_not_reached
+        ; max level reached
+        call error_msg  ;temporaly
+    .max_level_not_reached:
+
+    ; randomly spawn [level] asteroids
+    .spawn_asteroid_loop:
+        call spawn_random_asteroid
+        mov r8, [rbp - 8]
+        inc qword [r8]
+        mov r9 , [r8 - 8] ; level
+        cmp [r8], r9 ; while alive_asteroids != level
+    jne .spawn_asteroid_loop
+
+    mov r8, [rbp - 8]
+    inc qword [r8 - 8] ; level++
+    
+
+    ; level print
+    mov rdi, print_long
+    mov rsi, [r8 - 8]
+    xor rax, rax
+    call printf
+
+    leave
+    ret
+
+; *[x,y,dx,dy] (double), *[asteroids_alive, level]
 check_collisions:
-    enter 32,0
+    enter 48,0
     ; -8 asteroid counter
     ; -16 spaceship pointer
     ; -24 bullet counter
     ; -32 current asteroid offset
+    ; -40 *[asteroids_alive, level] ptr
     
     mov [rbp - 16], rdi
     mov qword [rbp - 8], 0
     mov qword [rbp - 24], 0
+    mov qword [rbp-40], rsi
     ; for each asteroid
     .check:
         xor rdx, rdx
@@ -265,6 +324,8 @@ check_collisions:
                     mov byte [bullet_pool + rax + 41], 0
                     mov rax, qword [rbp - 32]
                     mov byte [asteroid_pool + rax + 33], 0
+                    mov rax, qword [rbp - 40]; [asteroids_alive, level]
+                    dec qword [rax] ;asteroids_alive--
                 .not_collide_bullet:
 
                 .skip_bullet:
