@@ -41,6 +41,39 @@ get_bullet:
     leave
     ret
 
+;find addres of the first asteroid with active==0, or return 0
+;*asteroid_pool
+;single asteroid:  [x,y,dy,dy,active(bool),type(uchar/byte)] .. 34 aligned to 40
+get_asteroid:
+    enter 0,0
+
+    xor rcx, rcx ; counter
+
+    .get_asteroid_start:
+        ;rcx*asteroid_size
+        mov rax, ASTEROID_SIZE
+        mul rcx
+
+        mov dl, byte [rdi + rax + 33] ; asteroid_pool + index * ASTEROID_SIZE + 33(offset of active)
+        cmp dl, 0
+        je .get_asteroid_end ; if active == 0, return index
+
+        inc rcx ; index++
+        cmp rcx, ASTEROID_POOL_SIZE ; if index == ASTEROID_POOL_SIZE, return 0
+        jne .get_asteroid_start
+            xor rax, rax
+            leave
+            ret
+        
+    .get_asteroid_end:
+
+    add rax, rdi
+
+    leave
+    ret
+
+
+
 ; double fRand(double fMin, double fMax)
 ; {
 ;     double f = (double)rand() / RAND_MAX;
@@ -68,5 +101,30 @@ get_random_double:
 
     movq rax, xmm2
 
+    leave
+    ret
+
+;double abs(double x)
+;{
+;    if (x < 0)
+;        return -x;
+;    return x;
+;}
+
+; x in rdi
+; return in rax
+abs_f:
+    enter 0,0
+
+    mov rcx, __float64__(0.0)
+    movq xmm0, rcx
+    movq xmm1, rdi
+    comisd xmm0, xmm1
+    jb .fabs_end
+        mov rcx, __float64__(-1.0)
+        movq xmm0, rcx
+        mulsd xmm1, xmm0
+    .fabs_end:
+        movq rax, xmm1
     leave
     ret

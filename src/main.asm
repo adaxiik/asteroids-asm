@@ -124,8 +124,18 @@ main:
     mov byte [asteroid_pool + 33], 1
     mov byte [asteroid_pool + 34], 5
 
-    mov qword [rbp-104], 1    ; current alive asteroids
-    mov qword [rbp-112], 1    ; current level
+    mov rax, __float64__(220.0)
+    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 0], rax
+    mov rax, __float64__(400.0)
+    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 1], rax
+    mov rax, __float64__(5.0)
+    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 2], rax
+    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 3], rax
+    mov byte [asteroid_pool + ASTEROID_SIZE + 33], 1
+    mov byte [asteroid_pool + ASTEROID_SIZE + 34], 4
+
+    mov qword [rbp-104], 2    ; current alive asteroids
+    mov qword [rbp-112], 2    ; current level
 
 
     ; Main loop
@@ -147,6 +157,14 @@ main:
     jmp .event_loop
     .event_loop_end:
 
+    ; mov rdi, __float64__(-69.0)
+    ; call abs_f
+    ; mov rdi, print_double
+    ; movq xmm0, rax
+    ; mov rax, 1
+    ; call printf
+
+
     ; spawn new asteroids 
     cmp qword [rbp - 104], 0 ;alive asteroids
     jne .skip_spawn
@@ -167,12 +185,9 @@ main:
     call update_bullets
 
     ;check collisions
-    lea rdi, [rbp - 72] ; *[x,y]
-    lea rsi, [rbp - 104] ; *alive asteroids
-    call check_collisions
-
-
-    call SDL_RenderClear
+    ; lea rdi, [rbp - 72] ; *[x,y]
+    ; lea rsi, [rbp - 104] ; *alive asteroids
+    ; call check_collisions
     
     call render_bg
 
@@ -204,8 +219,84 @@ main:
     ret    
 
 spawn_random_asteroid:
-    enter 0,0
-    
+    enter 16,0
+    ; -8 : side
+    ; -16 asteroid address
+
+
+    ; spawn random asteroid at side
+    ; side = rand() % 4
+    ; if side == 0: x = 0, y = rand() % HEIGHT
+    ; if side == 1: x = rand() % WIDTH, y = 0
+    ; if side == 2: x = WIDTH, y = rand() % HEIGHT
+    ; if side == 3: x = rand() % WIDTH, y = HEIGHT
+
+    call rand
+    xor rdx, rdx
+    mov rcx, 4
+    div rcx
+    mov [rbp-8], rdx
+
+    mov rdi, asteroid_pool
+    call get_asteroid ; returns rax = asteroid address, or 0 if no free asteroids
+    cmp rax, 0
+    jne .free_asteroid_found
+        call error_msg
+    .free_asteroid_found:
+    mov [rbp-16], rax
+    ; set asteroid on adress [rbp-16] to alive
+    mov byte [rax + 33], 1
+
+    ;temp
+    jmp .side_0
+
+
+    cmp qword [rbp-8], 0
+    je .side_0
+    cmp qword [rbp-8], 1
+    je .side_1
+    cmp qword [rbp-8], 2
+    je .side_2
+    cmp qword [rbp-8], 3
+    je .side_3
+    jmp .side_end
+
+    .side_0:
+        ; x = 0, y = rand() % HEIGHT
+        mov rdi, __float64__(0.0)
+        mov rsi, HEIGHT
+        cvtsi2sd xmm0, rsi
+        movq rsi, xmm0
+        call get_random_double ; returns rax = random double
+
+        mov rdi, [rbp-16]
+        mov rcx, __float64__(0.0)
+        mov qword [rdi + 8 * 0], rcx
+        mov qword [rdi + 8 * 1], rax
+
+        jmp .side_end
+    .side_1:
+        jmp .side_end
+    .side_2:
+        jmp .side_end
+    .side_3:
+        ;jmp .side_end
+
+    .side_end:
+
+    ; set dx,dy to random value between -5 and 5
+    mov rdi, __float64__(-5.0)
+    mov rsi, __float64__(5.0)
+    call get_random_double 
+    mov rdi, [rbp-16]
+    mov qword [rdi + 8 * 2], rax ; dx
+
+    mov rdi, __float64__(-5.0)
+    mov rsi, __float64__(5.0)
+    call get_random_double 
+    mov rdi, [rbp-16]
+    mov qword [rdi + 8 * 3], rax ; dy
+
     
     leave
     ret
@@ -224,17 +315,19 @@ spawn_asteroids:
         call error_msg  ;temporaly
     .max_level_not_reached:
 
+    mov r8, [rbp - 8]
+    inc qword [r8 - 8] ; level++
+
     ; randomly spawn [level] asteroids
     .spawn_asteroid_loop:
         call spawn_random_asteroid
         mov r8, [rbp - 8]
         inc qword [r8]
         mov r9 , [r8 - 8] ; level
-        cmp [r8], r9 ; while alive_asteroids != level
+        cmp [r8], r9 ; while alive_asteroids != level        
     jne .spawn_asteroid_loop
 
-    mov r8, [rbp - 8]
-    inc qword [r8 - 8] ; level++
+   
     
 
     ; level print
@@ -255,12 +348,12 @@ check_collisions:
     ; -32 current asteroid offset
     ; -40 *[asteroids_alive, level] ptr
     
-    mov [rbp - 16], rdi
     mov qword [rbp - 8], 0
+    mov qword [rbp - 16], rdi
     mov qword [rbp - 24], 0
     mov qword [rbp-40], rsi
     ; for each asteroid
-    .check:
+    .check:      
         xor rdx, rdx
         mov rax, ASTEROID_SIZE  ; in bytes
         mul qword [rbp - 8]
@@ -292,52 +385,56 @@ check_collisions:
             comisd xmm0, xmm1
             ja .not_collide_ship
                 ;collision detected
-                mov rdi, collision_text
-                call puts
+                ; mov rdi, collision_text
+                ; call puts
             .not_collide_ship:
-                
+
             ;check collision with bullets
             ; for each bullet
             .check_bullet:
+                mov rdi, collision_text
+                call puts
                 xor rdx, rdx
                 mov rax, BULLET_SIZE
                 mul qword [rbp - 24]
                 cmp byte [bullet_pool + rax + 41], 0 ;active offset
                 je .skip_bullet
-                ; if distance < ASTEROID_RADIUS + BULLET_RADIUS
-                ; asteroid x1,y1 is already in xmm4, xmm5
-                movq xmm0, xmm4
-                movq xmm1, xmm5
-                movq xmm2, [bullet_pool + rax + 8 * 0] ;x2
-                movq xmm3, [bullet_pool + rax + 8 * 1] ;y2
-                subsd xmm0, xmm2 ;x1-x2
-                subsd xmm1, xmm3 ;y1-y2
-                mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
-                mulsd xmm1, xmm1 ;(y1-y2)*(y1-y2)
-                addsd xmm0, xmm1 ;(x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
+                    ; if distance < ASTEROID_RADIUS + BULLET_RADIUS
+                    ; asteroid x1,y1 is already in xmm4, xmm5
+                    movq xmm0, xmm4
+                    movq xmm1, xmm5
+                    movq xmm2, [bullet_pool + rax + 8 * 0] ;x2
+                    movq xmm3, [bullet_pool + rax + 8 * 1] ;y2
+                    subsd xmm0, xmm2 ;x1-x2
+                    subsd xmm1, xmm3 ;y1-y2
+                    mulsd xmm0, xmm0 ;(x1-x2)*(x1-x2)
+                    mulsd xmm1, xmm1 ;(y1-y2)*(y1-y2)
+                    addsd xmm0, xmm1 ;(x1-x2)*(x1-x2) + (y1-y2)*(y1-y2)
 
-                mov r8, __float64__(BULLET_PLUS_ASTEROID_RADIUS)
-                movq xmm1, r8
-                mulsd xmm1, xmm1 ;(ASTEROID_RADIUS + BULLET_RADIUS)*(ASTEROID_RADIUS + BULLET_RADIUS)
+                    mov r8, __float64__(BULLET_PLUS_ASTEROID_RADIUS)
+                    movq xmm1, r8
+                    mulsd xmm1, xmm1 ;(ASTEROID_RADIUS + BULLET_RADIUS)*(ASTEROID_RADIUS + BULLET_RADIUS)
 
-                ;xmm0 = distance^2
-                ;xmm1 = (ASTEROID_RADIUS + BULLET_RADIUS)^2
-
-                comisd xmm0, xmm1
-                ja .not_collide_bullet
-                    ;collision detected
-                    ;deactivate bullet and asteroid
-                    mov byte [bullet_pool + rax + 41], 0
-                    mov rax, qword [rbp - 32]
-                    mov byte [asteroid_pool + rax + 33], 0
-                    mov rax, qword [rbp - 40]; [asteroids_alive, level]
-                    dec qword [rax] ;asteroids_alive--
-                .not_collide_bullet:
-
+                    ;xmm0 = distance^2
+                    ;xmm1 = (ASTEROID_RADIUS + BULLET_RADIUS)^2
+                    
+                    comisd xmm0, xmm1
+                    ja .not_collide_bullet
+                        ;collision detected
+                        ;deactivate bullet and asteroid
+                        mov byte [bullet_pool + rax + 41], 0
+                        mov rax, qword [rbp - 32]
+                        mov byte [asteroid_pool + rax + 33], 0
+                        mov rax, qword [rbp - 40]; [asteroids_alive, level]
+                        dec qword [rax] ;asteroids_alive--
+                        
+                    .not_collide_bullet:
                 .skip_bullet:
+            
                 inc qword [rbp - 24]
                 cmp qword [rbp - 24], BULLET_POOL_SIZE
                 jne .check_bullet
+                
         .skip_check:
         inc qword [rbp - 8]
         cmp qword [rbp - 8], ASTEROID_POOL_SIZE
@@ -439,13 +536,15 @@ render_asteroids:
 
 update_asteroids:
     enter 16,0
-    ; -8 : counter
+    ; -8  : counter
+    ; -16 : asteroid array offset
     mov qword [rbp - 8], 0
 
     .update:
         xor rdx, rdx
         mov rax, ASTEROID_SIZE
         mul qword [rbp - 8]
+        mov [rbp - 16], rax
         cmp byte [asteroid_pool + rax + 33], 0 ;active offset
         je .skip_update
         ;update asteroid
@@ -473,16 +572,33 @@ update_asteroids:
             ; if x < 0
             comisd xmm0, xmm4
             ja .x_greater_0
-                mulsd xmm2, xmm5
-                movsd [asteroid_pool + rax + 8 * 2], xmm2 ; *-1
+                ; mulsd xmm2, xmm5
+                ; movsd [asteroid_pool + rax + 8 * 2], xmm2 ; *-1
+                movq rdi, xmm2
+                call abs_f                                  ; USES XMM0 and XMM1 registers !!!!
+                mov rdi, [rbp - 16]
+                mov qword [asteroid_pool + rdi + 8 * 2], rax 
             .x_greater_0:
+
+            mov rax, [rbp - 16]
+            ;movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x
+            movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y
 
             ; if y < 0
             comisd xmm1, xmm4
             ja .y_greater_0
-                mulsd xmm3, xmm5
-                movsd [asteroid_pool + rax + 8 * 3], xmm3 ; *-1
+                ; mulsd xmm3, xmm5
+                ; movsd [asteroid_pool + rax + 8 * 3], xmm3 ; *-1
+                movq rdi, xmm3
+                call abs_f
+                mov rdi, [rbp - 16]
+                mov qword [asteroid_pool + rdi + 8 * 3], rax
             .y_greater_0:
+
+            mov rax, [rbp - 16]
+            movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x
+            ;movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y
+
 
             mov r8, WIDTH
             mov r9, HEIGHT
@@ -499,15 +615,31 @@ update_asteroids:
             ; if x > WIDTH
             comisd xmm0, xmm6
             jb .x_less_width
+                ; mulsd xmm2, xmm5
+                ; movsd [asteroid_pool + rax + 8 * 2], xmm2 ; dx
+                movq rdi, xmm2
+                call abs_f
+                movq xmm2, rax
                 mulsd xmm2, xmm5
-                movsd [asteroid_pool + rax + 8 * 2], xmm2 ; dx
+                mov rdi, [rbp - 16]
+                movsd [asteroid_pool + rdi + 8 * 2], xmm2
             .x_less_width:
+
+            mov rax, [rbp - 16]
+            ;movsd xmm0, [asteroid_pool + rax + 8 * 0] ;x
+            movsd xmm1, [asteroid_pool + rax + 8 * 1] ;y
 
             ; if y > HEIGHT
             comisd xmm1, xmm7
             jb .y_less_height
+                ; mulsd xmm3, xmm5
+                ; movsd [asteroid_pool + rax + 8 * 3], xmm3 ; dy
+                movq rdi, xmm3
+                call abs_f
+                movq xmm3, rax
                 mulsd xmm3, xmm5
-                movsd [asteroid_pool + rax + 8 * 3], xmm3 ; dy
+                mov rdi, [rbp - 16]
+                movsd [asteroid_pool + rdi + 8 * 3], xmm3
             .y_less_height:
 
         .skip_update:
