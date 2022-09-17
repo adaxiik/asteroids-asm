@@ -113,29 +113,11 @@ main:
     mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
     call memset
 
-    ;enable one asteroid manualy for testing
-    mov rax, __float64__(220.0)
-    mov qword [asteroid_pool + 8 * 0], rax
-    mov rax, __float64__(400.0)
-    mov qword [asteroid_pool + 8 * 1], rax
-    mov rax, __float64__(-5.0)
-    mov qword [asteroid_pool + 8 * 2], rax
-    mov qword [asteroid_pool + 8 * 3], rax
-    mov byte [asteroid_pool + 33], 1
-    mov byte [asteroid_pool + 34], 5
 
-    mov rax, __float64__(220.0)
-    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 0], rax
-    mov rax, __float64__(400.0)
-    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 1], rax
-    mov rax, __float64__(5.0)
-    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 2], rax
-    mov qword [asteroid_pool + ASTEROID_SIZE + 8 * 3], rax
-    mov byte [asteroid_pool + ASTEROID_SIZE + 33], 1
-    mov byte [asteroid_pool + ASTEROID_SIZE + 34], 4
-
-    mov qword [rbp-104], 2    ; current alive asteroids
-    mov qword [rbp-112], 2    ; current level
+    mov qword [rbp-104], 0    ; current alive asteroids
+    mov qword [rbp-112], 0    ; current level
+    lea rdi, [rbp - 104]
+    call spawn_asteroids
 
 
     ; Main loop
@@ -185,9 +167,9 @@ main:
     call update_bullets
 
     ;check collisions
-    ; lea rdi, [rbp - 72] ; *[x,y]
-    ; lea rsi, [rbp - 104] ; *alive asteroids
-    ; call check_collisions
+    lea rdi, [rbp - 72] ; *[x,y]
+    lea rsi, [rbp - 104] ; *alive asteroids
+    call check_collisions
     
     call render_bg
 
@@ -297,6 +279,8 @@ spawn_random_asteroid:
     mov rdi, [rbp-16]
     mov qword [rdi + 8 * 3], rax ; dy
 
+    ;set 
+
     
     leave
     ret
@@ -350,7 +334,7 @@ check_collisions:
     
     mov qword [rbp - 8], 0
     mov qword [rbp - 16], rdi
-    mov qword [rbp - 24], 0
+    ;mov qword [rbp - 24], 0
     mov qword [rbp-40], rsi
     ; for each asteroid
     .check:      
@@ -391,9 +375,8 @@ check_collisions:
 
             ;check collision with bullets
             ; for each bullet
+            mov qword [rbp - 24], 0
             .check_bullet:
-                mov rdi, collision_text
-                call puts
                 xor rdx, rdx
                 mov rax, BULLET_SIZE
                 mul qword [rbp - 24]
