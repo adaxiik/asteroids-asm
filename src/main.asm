@@ -1,6 +1,6 @@
 bits 64
     global    main
-    %define MAX_LEVEL 4
+    %define MAX_LEVEL 16
 
     ; spaceship position is set at center
     %define SPACESHIP_SIZE 80       ;in px
@@ -65,7 +65,7 @@ section .data
     print_long : db "%ld",10, 0
     print_double: db "%lf",10, 0
     collision_text: db "COLLISION", 0
-
+    max_level_text: db "WOW, You reached maximum level, CONGRATULATIONS!", 0
 ; RDI, RSI, RDX, RCX, R8, R9
 section   .text
 main:
@@ -347,7 +347,10 @@ spawn_asteroids:
     cmp r8, MAX_LEVEL
     jb .max_level_not_reached
         ; max level reached
-        call error_msg  ;temporaly
+        mov rdi, max_level_text
+        call puts
+        mov rdi, 0
+        call exit
     .max_level_not_reached:
 
     mov r8, [rbp - 8]
@@ -420,8 +423,8 @@ check_collisions:
             comisd xmm0, xmm1
             ja .not_collide_ship
                 ;collision detected
-                ; mov rdi, collision_text
-                ; call puts
+                mov rdi, collision_text
+                call puts
             .not_collide_ship:
 
             ;check collision with bullets
