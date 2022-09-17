@@ -1,6 +1,6 @@
 bits 64
     global    main
-    %define MAX_LEVEL 16
+    %define MAX_LEVEL 4
 
     ; spaceship position is set at center
     %define SPACESHIP_SIZE 80       ;in px
@@ -229,10 +229,6 @@ spawn_random_asteroid:
     ; set asteroid on adress [rbp-16] to alive
     mov byte [rax + 33], 1
 
-    ;temp
-    jmp .side_0
-
-
     cmp qword [rbp-8], 0
     je .side_0
     cmp qword [rbp-8], 1
@@ -247,6 +243,7 @@ spawn_random_asteroid:
         ; x = 0, y = rand() % HEIGHT
         mov rdi, __float64__(0.0)
         mov rsi, HEIGHT
+        pxor xmm0, xmm0
         cvtsi2sd xmm0, rsi
         movq rsi, xmm0
         call get_random_double ; returns rax = random double
@@ -258,10 +255,56 @@ spawn_random_asteroid:
 
         jmp .side_end
     .side_1:
+        ; x = rand() % WIDTH, y = 0
+        mov rdi, __float64__(0.0)
+        mov rsi, WIDTH
+        pxor xmm0, xmm0
+        cvtsi2sd xmm0, rsi
+        movq rsi, xmm0
+        call get_random_double ; returns rax = random double
+
+        mov rdi, [rbp-16]
+        mov rcx, __float64__(0.0)
+        mov qword [rdi + 8 * 0], rax
+        mov qword [rdi + 8 * 1], rcx
+
         jmp .side_end
     .side_2:
+        ; x = WIDTH, y = rand() % HEIGHT
+        mov rdi, __float64__(0.0)
+        mov rsi, HEIGHT
+        pxor xmm0, xmm0
+        cvtsi2sd xmm0, rsi
+        movq rsi, xmm0
+        call get_random_double ; returns rax = random double
+
+        mov rcx, WIDTH
+        pxor xmm0, xmm0
+        cvtsi2sd xmm0, rcx
+        movq rcx, xmm0
+
+        mov rdi, [rbp-16]
+        mov qword [rdi + 8 * 0], rcx
+        mov qword [rdi + 8 * 1], rax
+
         jmp .side_end
     .side_3:
+        ; x = rand() % WIDTH, y = HEIGHT
+        mov rdi, __float64__(0.0)
+        mov rsi, WIDTH
+        pxor xmm0, xmm0
+        cvtsi2sd xmm0, rsi
+        movq rsi, xmm0
+        call get_random_double ; returns rax = random double
+
+        mov rcx, HEIGHT
+        pxor xmm0, xmm0
+        cvtsi2sd xmm0, rcx
+        movq rcx, xmm0
+
+        mov rdi, [rbp-16]
+        mov qword [rdi + 8 * 0], rax
+        mov qword [rdi + 8 * 1], rcx
         ;jmp .side_end
 
     .side_end:
@@ -279,7 +322,15 @@ spawn_random_asteroid:
     mov rdi, [rbp-16]
     mov qword [rdi + 8 * 3], rax ; dy
 
-    ;set 
+    ;set type to rand()%9
+    call rand
+    xor rdx, rdx
+    mov rcx, 9
+    div rcx
+
+    mov rdi, [rbp - 16]
+    mov byte [rdi + 34], dl ; type
+
 
     
     leave
