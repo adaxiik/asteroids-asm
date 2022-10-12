@@ -1,19 +1,37 @@
 # asteroids-asm
-Asteroids game written in nasm assembly
+Asteroids game written in x86 nasm assembly
+
+## Example
+![example](examples/asm_example.gif)
 
 ## Current state
 - Spaceship movement and rendering
 - Bullet shooting and rendering (from bullet pool)
 - Asteroid rendering and movement
+- Asteroids generation
 
 ## Future plans
-- Asteroids generation
-- Collision detection
+- Collision detection (with ship)
+- Asteroid explosion effect
 - Maybe some simple ui
 
 ## Dependencies
 - nasm
 - sdl2 + sdl2_image
+
+## Build
+```sh
+$ ./build.sh
+```
+- or manually, build with nasm and link math lib, SDL2 and SDL2_image
+
+## Controls
+| Key | Action |
+| --- | --- |
+| W | Move forward |
+| A | Rotate left |
+| D | Rotate right |
+| Space | Shoot |
 
 ## Assets
 - [asteroids](https://opengameart.org/content/asteroids-pack-2d-diffuse-normal-seamless-animations)
