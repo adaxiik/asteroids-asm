@@ -488,7 +488,7 @@ render_asteroids:
     mov qword [rbp - 40], 0
 
     ; (time/ms_per_frame)%frames
-    call SDL_GetTicks64
+    call SDL_GetTicks
     xor rdx, rdx
     mov r8, ASTEROID_FRAME_MS
     div r8
@@ -692,7 +692,7 @@ update_bullets:
     ; -8 counter
     ; -16 current time
     mov qword [rbp - 8], 0
-    call SDL_GetTicks64
+    call SDL_GetTicks
     mov qword [rbp - 16], rax ;current time
 
     .update:
@@ -737,7 +737,7 @@ shoot:
     mov [rbp - 8], rdi
 
     ;check if SHOOT_DELAY has passed
-    call SDL_GetTicks64
+    call SDL_GetTicks
     mov rcx, rax
     mov rdx, [last_time_shoot]
     sub rax, rdx
@@ -765,7 +765,7 @@ shoot:
             movsd [rax + 8 * 0], xmm1
             movsd [rax + 8 * 1], xmm2
 
-            call SDL_GetTicks64
+            call SDL_GetTicks
             mov rdx, [rbp - 16] ;load bullet addr
             mov qword [rdx + 8 * 4], rax ;time
 
