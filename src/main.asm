@@ -36,6 +36,21 @@ bits 64
     %define SPACESHIP_PLUS_ASTEROID_RADIUS 50.0
     %define BULLET_PLUS_ASTEROID_RADIUS 40.0    ; see `check_collisions`
 
+    %define EXPLOSION_SIZE 40 ;in bytes.. [x,y,rotation,spawn_time,active(bool),] .. 33 aligned to 40
+    %define EXPLOSION_POOL_SIZE 32
+    %define EXPLOSION_SRC_WH 512
+    %define EXPLOSION_WH 256 ;width and height
+    %define EXPLOSION_WH_HALF EXPLOSION_WH/2
+    %define EXPLOSION_FRAMES_X 8
+    %define EXPLOSION_FRAMES_Y 8
+    %define EXPLOSION_FPS 30
+    %define EXPLOSION_FRAME_MS 1000/EXPLOSION_FPS
+    %define EXPLOSION_ANIMATION_FRAMES EXPLOSION_FRAMES_X*EXPLOSION_FRAMES_Y
+    %define EXPLOSION_ANIMATION_TIME EXPLOSION_ANIMATION_FRAMES*EXPLOSION_FRAME_MS
+    %define EXPLOSION_ANIMATION_TIME_TIMES_FRAMES EXPLOSION_ANIMATION_TIME*EXPLOSION_ANIMATION_FRAMES
+
+
+
     %define DEG2RAD 0.0174532925
     %define WIDTH 1024
     %define HEIGHT 768
@@ -53,6 +68,9 @@ section .bss
     ship_texture: resq 1
     bullet_texture: resq 1
     bullet_pool: resb BULLET_POOL_SIZE*BULLET_SIZE
+    explosion_texture: resq 1
+    explosion_pool: resb EXPLOSION_POOL_SIZE*EXPLOSION_SIZE
+
     last_time_shoot: resq 1
 
 
@@ -61,6 +79,7 @@ section .data
     asteroids_texture_path: db "assets/asteroids.png", 0
     ship_texture_path: db "assets/ship.png", 0
     bullet_texture_path: db "assets/bullet.png", 0
+    explosion_texture_path: db "assets/explosion.png", 0
     error_text : db "ERROR", 0
     print_long : db "%ld",10, 0
     print_double: db "%lf",10, 0
@@ -113,9 +132,17 @@ main:
     mov rdx, ASTEROID_POOL_SIZE*ASTEROID_SIZE
     call memset
 
+    ; zero init values for explosions
+    mov rdi, explosion_pool
+    xor rsi, rsi
+    mov rdx, EXPLOSION_POOL_SIZE*EXPLOSION_SIZE
+    call memset
+
 
     mov qword [rbp-104], 0    ; current alive asteroids
     mov qword [rbp-112], 0    ; current level
+    
+
     lea rdi, [rbp - 104]
     call spawn_asteroids
 
@@ -179,6 +206,8 @@ main:
     ;call render_animation
 
     call render_asteroids
+
+    call render_explosions
 
     ;render spaceship
     lea rdi, [rbp - 64] ; *[angle,x,y]
@@ -462,6 +491,12 @@ check_collisions:
                         mov byte [bullet_pool + rax + 41], 0
                         mov rax, qword [rbp - 32]
                         mov byte [asteroid_pool + rax + 33], 0
+
+                        movsd xmm0, xmm4
+                        movsd xmm1, xmm5
+                        ;spawn explosion
+                        call spawn_explosion
+
                         mov rax, qword [rbp - 40]; [asteroids_alive, level]
                         dec qword [rax] ;asteroids_alive--
                         
@@ -567,6 +602,157 @@ render_asteroids:
         cmp qword [rbp - 40], ASTEROID_POOL_SIZE
         jne .render_asteroid 
  
+
+    leave
+    ret
+
+
+render_explosions:
+    enter 48,0
+    ; -8  : counter
+    ; -16  : current time
+    ; -32 : explosion rect
+    ; -48 : dest rect
+
+    xor rax, rax
+    call SDL_GetTicks
+    mov qword [rbp - 16], rax
+    mov qword [rbp - 8], 0
+
+    .render_explosion:
+        xor rdx, rdx
+        mov rax, EXPLOSION_SIZE
+        mul qword [rbp - 8]
+        mov r9, rax ;addr offset
+        cmp byte [explosion_pool + r9 + 33], 0 ; if active
+        je .skip_rendering
+            ;compare current time with explosion time
+            ;if(current_time - explosion_time) > EXPLOSION_ANIMATION_TIME_TIMES_FRAMES) active = 0
+            mov r8, qword [rbp - 16]
+            sub r8, qword [explosion_pool + r9 + 8 * 3]
+            mov rax, EXPLOSION_ANIMATION_TIME
+            cmp rax, r8
+            jae .skip_set_inactive
+                mov byte [explosion_pool + r9 + 33], 0
+
+            .skip_set_inactive:
+
+            ;render explosion
+            ;get animation frame
+            ;min((current_time - explosion_time)/EXPLOSION_ANIMATION_TIME_TIMES_FRAMES, EXPLOSION_ANIMATION_FRAMES)
+            mov rax, qword [rbp - 16]
+            sub rax, qword [explosion_pool + r9 + 8 * 3]
+            xor rdx, rdx
+            mov r8, EXPLOSION_FRAME_MS
+            div r8 ;rax = (current_time - explosion_time)/EXPLOSION_ANIMATION_TIME_TIMES_FRAMES   // current frame
+            mov r8, EXPLOSION_ANIMATION_TIME_TIMES_FRAMES
+            cmp rax, r8
+            cmovae rax, r8 ; rax = min() // current frame
+            
+            ; ; sprite sheet offset_X = (current_frame%EXPLOSION_FRAMES_X)*EXPLOSION_SRC_WH
+            ; ; sprite sheet offset_Y = (current_frame/EXPLOSION_FRAMES_X)*EXPLOSION_SRC_WH
+            xor rdx, rdx
+            mov r8, EXPLOSION_FRAMES_X
+            div r8 ; rax = offset_Y, rdx = offset_X
+            
+            mov rbx, rdx
+            xor rdx, rdx
+
+            mov r8, EXPLOSION_SRC_WH
+            mul r8  ; rax = offset_Y * EXPLOSION_SRC_WH
+            mov rdx, rax
+            mov rax, rbx ; rax = offset_X
+            mov rbx, rdx ; rbx = offset_Y * EXPLOSION_SRC_WH
+
+            xor rdx, rdx
+            mul r8 ; rax = offset_X * EXPLOSION_SRC_WH
+
+            lea rdi, [rbp - 32]
+            mov rsi, rax ; offset_X
+            mov rdx, rbx ; offset_Y 
+            ; xor rsi, rsi
+            ; xor rdx, rdx
+            mov rcx, EXPLOSION_SRC_WH
+            mov r8, EXPLOSION_SRC_WH
+            call create_rect    ; texture rect
+
+            ;convert x,y to long
+            movsd xmm0, qword [explosion_pool + r9 + 8 * 0]
+            movsd xmm1, qword [explosion_pool + r9 + 8 * 1]
+
+            ;=====================
+            ; to render explosion at center
+            mov r8, EXPLOSION_WH_HALF
+            pxor xmm2, xmm2
+            cvtsi2sd xmm2, r8
+            subsd xmm0, xmm2
+            subsd xmm1, xmm2
+            ;=====================
+
+
+            cvtsd2si rsi, xmm0
+            cvtsd2si rdx, xmm1
+
+            lea rdi, [rbp - 48]
+            mov rcx, EXPLOSION_WH
+            mov r8, EXPLOSION_WH
+            call create_rect    ; dest rect
+
+            ; render explosion
+            mov rdi, [renderer]
+            mov rsi, [explosion_texture]
+            lea rdx, [rbp - 32]
+            lea rcx, [rbp - 48]
+            movsd xmm0, qword [explosion_pool + r9 + 8 * 2]
+            xor r8, r8
+            xor r9, r9
+            call SDL_RenderCopyEx
+
+        .skip_rendering:
+    inc qword [rbp - 8]
+    cmp qword [rbp - 8], EXPLOSION_POOL_SIZE
+    jne .render_explosion
+
+
+    leave
+    ret
+
+; x, y (doubles) -> xmm0, xmm1
+spawn_explosion:
+    enter 32,0
+    ; -8 : x   
+    ; -16 : y
+    ; -24 : time
+
+    xor rax, rax
+    call SDL_GetTicks
+    mov qword [rbp - 24], rax
+
+    ; find free explosion    
+    mov rdi, explosion_pool
+    call get_explosion
+    cmp rax, 0
+    je .out_of_explosions
+
+    ;set explosion data
+    movsd qword [rax + 8 * 0], xmm0 ;x
+    movsd qword [rax + 8 * 1], xmm1 ;y
+
+    mov rbx, qword [rbp - 24]
+    mov qword [rax + 8 * 3], rbx ; time
+    mov byte [rax + 33], 1 ; active
+
+    mov [rbp-24], rax ; return explosion addr
+
+    mov rdi, __float64__(0.0)
+    mov rsi, __float64__(360.0)
+    call get_random_double
+
+    mov rbx, [rbp - 24]
+    
+    mov qword [rbx + 8 * 2], rax ; angle
+
+    .out_of_explosions:
 
     leave
     ret
@@ -1161,54 +1347,54 @@ render_spaceship:
     leave 
     ret
 
-render_animation:
-    enter 48,0
-    ;-16 src_rect
-    ;-32 dst_rect
-    ;-36 sprite id
+; render_animation:
+;     enter 48,0
+;     ;-16 src_rect
+;     ;-32 dst_rect
+;     ;-36 sprite id
 
     
-    ; (time/ms_per_frame)%frames
-    call SDL_GetTicks ; get current time in ms
-    xor rdx, rdx
-    mov r8, 40        ; ms per frame
-    div r8
+;     ; (time/ms_per_frame)%frames
+;     call SDL_GetTicks ; get current time in ms
+;     xor rdx, rdx
+;     mov r8, 40        ; ms per frame
+;     div r8
 
-    xor rdx, rdx
-    mov r8, 23
-    div r8
-    mov [rbp - 36], rdx ; time%frames (frames = 23)
+;     xor rdx, rdx
+;     mov r8, 23
+;     div r8
+;     mov [rbp - 36], rdx ; time%frames (frames = 23)
 
 
-    ;rcx = sprite_id * 75
-    mov r8, 75
-    xor rdx, rdx
-    mov rax, [rbp - 36]
-    mul r8
-    mov rsi, rax
+;     ;rcx = sprite_id * 75
+;     mov r8, 75
+;     xor rdx, rdx
+;     mov rax, [rbp - 36]
+;     mul r8
+;     mov rsi, rax
 
-    lea rdi, [rbp - 16]
-    ;mov rsi, 0
-    mov rdx, 75
-    mov rcx, 75
-    mov r8, 75
-    call create_rect
+;     lea rdi, [rbp - 16]
+;     ;mov rsi, 0
+;     mov rdx, 75
+;     mov rcx, 75
+;     mov r8, 75
+;     call create_rect
 
-    lea rdi, [rbp - 32]
-    mov rsi, 300
-    mov rdx, 300
-    mov rcx, 100
-    mov r8, 100
-    call create_rect
+;     lea rdi, [rbp - 32]
+;     mov rsi, 300
+;     mov rdx, 300
+;     mov rcx, 100
+;     mov r8, 100
+;     call create_rect
 
-    ; render sprite
-    mov rdi, [renderer]
-    mov rsi, [asteroids_texture]
-    lea rdx, [rbp - 16]
-    lea rcx, [rbp - 32]
-    call SDL_RenderCopy
-    leave
-    ret
+;     ; render sprite
+;     mov rdi, [renderer]
+;     mov rsi, [asteroids_texture]
+;     lea rdx, [rbp - 16]
+;     lea rcx, [rbp - 32]
+;     call SDL_RenderCopy
+;     leave
+;     ret
 
 render_bg:
     enter 0, 0
@@ -1290,6 +1476,10 @@ cleanup:
     mov rdi, [bullet_texture]
     call SDL_DestroyTexture
 
+    ; Destroy explosion texture
+    mov rdi, [explosion_texture]
+    call SDL_DestroyTexture
+
     ; Quit SDL_image
     call IMG_Quit
     ; Quit SDL
@@ -1361,6 +1551,27 @@ load_textures:
     mov rsi, rax
     call SDL_CreateTextureFromSurface
     mov [bullet_texture], rax
+
+    ; check if converted texture is NULL
+    cmp rax, 0
+    je error_msg
+
+    ; Free surface
+    mov rdi, [rbp - 8]
+    call SDL_FreeSurface
+
+    ;------------------------------------------------------------
+    ; Load explosion texture
+    mov rdi, explosion_texture_path
+    call IMG_Load
+    cmp rax, 0
+    je error_msg
+
+    mov [rbp - 8], rax ;save surface pointer for cleanup
+    mov rdi, [renderer]
+    mov rsi, rax
+    call SDL_CreateTextureFromSurface
+    mov [explosion_texture], rax
 
     ; check if converted texture is NULL
     cmp rax, 0

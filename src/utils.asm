@@ -73,6 +73,36 @@ get_asteroid:
     ret
 
 
+;find addres of the first explosion with active==0, or return 0
+;*explosion_pool
+;single explosion:  [x,y,rotation,spawn_time,active(bool),] .. 33 aligned to 40
+get_explosion:
+    enter 0,0
+    xor rcx, rcx ; counter
+
+    .get_explosion_start:
+        mov rax, EXPLOSION_SIZE
+        mul rcx
+
+        mov dl, byte [rdi + rax + 33] ; explosion_pool + index * EXPLOSION_SIZE + 33(offset of active)
+        cmp dl, 0
+        je .get_explosion_end ; if active == 0, return index
+
+        inc rcx ; index++
+        cmp rcx, EXPLOSION_POOL_SIZE ; if index == EXPLOSION_POOL_SIZE, return 0
+        jne .get_explosion_start
+            xor rax, rax
+            leave
+            ret
+        
+    .get_explosion_end:
+
+    add rax, rdi
+
+    leave
+    ret
+
+
 
 ; double fRand(double fMin, double fMax)
 ; {

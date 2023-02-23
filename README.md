@@ -9,10 +9,10 @@ Asteroids game written in x86 nasm assembly
 - Bullet shooting and rendering (from bullet pool)
 - Asteroid rendering and movement
 - Asteroids generation
+- Asteroid explosion effect
 
 ## Future plans
 - Collision detection (with ship)
-- Asteroid explosion effect
 - Maybe some simple ui
 
 ## Dependencies
@@ -37,6 +37,7 @@ $ ./build.sh
 - [asteroids](https://opengameart.org/content/asteroids-pack-2d-diffuse-normal-seamless-animations)
 - [spaceship](https://opengameart.org/content/2d-spaceship-sprites-with-engines)
 - [bullet](https://opengameart.org/content/bullet-collection-1-m484)
+- [explosion](https://opengameart.org/content/2d-explosion-animations-2-frame-by-frame)
 
 ## Resources
 - https://poli.cs.vsb.cz/edu/apps/soj/down/soj-syllabus.pdf
